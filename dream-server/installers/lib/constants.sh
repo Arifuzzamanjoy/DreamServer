@@ -14,7 +14,7 @@
 #   Change VERSION for custom builds. Add new color codes here.
 # ============================================================================
 
-VERSION="2.1.0-strix-halo"
+VERSION="2.0.0-strix-halo"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/dream-server}"
 LOG_FILE="${LOG_FILE:-/tmp/dream-server-install.log}"

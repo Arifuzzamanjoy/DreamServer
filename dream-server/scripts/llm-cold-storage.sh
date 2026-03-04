@@ -2,7 +2,7 @@
 #
 # llm-cold-storage.sh — Archive idle HuggingFace models to cold storage
 #
-# Part of Lighthouse AI tooling.
+# Part of Dream Server tooling.
 #
 # Models not accessed in 7+ days are moved to cold storage on a backup drive.
 # A symlink replaces the original so HuggingFace cache resolution still works.

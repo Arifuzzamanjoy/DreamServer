@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Dream Server Dashboard API",
-    version="1.0.0",
+    version="2.0.0",
     description="System status API for Dream Server Dashboard"
 )
 

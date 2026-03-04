@@ -37,8 +37,8 @@ Dream Server automatically detects your GPU and configures appropriate models:
 ## Installation
 
 ```bash
-git clone https://github.com/Light-Heart-Labs/Lighthouse-AI.git
-cd Lighthouse-AI/dream-server
+git clone https://github.com/Light-Heart-Labs/DreamServer.git
+cd DreamServer/dream-server
 ./install.sh
 ```
 

@@ -3,7 +3,7 @@
 
 FROM python:3.11-slim
 
-LABEL org.opencontainers.image.source="https://github.com/Light-Heart-Labs/Lighthouse-AI"
+LABEL org.opencontainers.image.source="https://github.com/Light-Heart-Labs/DreamServer"
 LABEL org.opencontainers.image.description="Dream Server Dashboard API"
 
 WORKDIR /app

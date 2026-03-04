@@ -1,18 +1,18 @@
 name: Feature Request
-description: Suggest a new feature or improvement for Lighthouse AI
+description: Suggest a new feature or improvement for Dream Server
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        Have an idea that would make Lighthouse AI better? We'd love to hear it.
+        Have an idea that would make Dream Server better? We'd love to hear it.
 
   - type: textarea
     id: description
     attributes:
       label: Description
       description: A clear description of the feature you'd like.
-      placeholder: What should Lighthouse AI do?
+      placeholder: What should Dream Server do?
     validations:
       required: true
 

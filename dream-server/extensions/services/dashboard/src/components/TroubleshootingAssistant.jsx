@@ -254,7 +254,7 @@ export function TroubleshootingAssistant({ serviceStatus }) {
         <p className="text-xs text-zinc-500">
           Still stuck? Check the{' '}
           <a 
-            href="https://github.com/Light-Heart-Labs/Lighthouse-AI/tree/main/dream-server#troubleshooting" 
+            href="https://github.com/Light-Heart-Labs/DreamServer/tree/main/dream-server#troubleshooting" 
             target="_blank"
             rel="noopener noreferrer"
             className="text-indigo-400 hover:text-indigo-300"

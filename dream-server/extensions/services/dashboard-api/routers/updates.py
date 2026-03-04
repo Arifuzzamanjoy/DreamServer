@@ -26,7 +26,7 @@ async def get_version():
     result = {"current": current, "latest": None, "update_available": False, "changelog_url": None, "checked_at": datetime.now(timezone.utc).isoformat() + "Z"}
 
     try:
-        req = urllib.request.Request("https://api.github.com/repos/Light-Heart-Labs/Lighthouse-AI/releases/latest", headers={"Accept": "application/vnd.github.v3+json"})
+        req = urllib.request.Request("https://api.github.com/repos/Light-Heart-Labs/DreamServer/releases/latest", headers={"Accept": "application/vnd.github.v3+json"})
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read())
             latest = data.get("tag_name", "").lstrip("v")
@@ -51,7 +51,7 @@ async def get_release_manifest():
     import urllib.error
 
     try:
-        req = urllib.request.Request("https://api.github.com/repos/Light-Heart-Labs/Lighthouse-AI/releases?per_page=5", headers={"Accept": "application/vnd.github.v3+json"})
+        req = urllib.request.Request("https://api.github.com/repos/Light-Heart-Labs/DreamServer/releases?per_page=5", headers={"Accept": "application/vnd.github.v3+json"})
         with urllib.request.urlopen(req, timeout=5) as resp:
             releases = json.loads(resp.read())
             return {
@@ -65,7 +65,7 @@ async def get_release_manifest():
         version_file = Path(INSTALL_DIR) / ".version"
         current = version_file.read_text().strip() if version_file.exists() else "0.0.0"
         return {
-            "releases": [{"version": current, "date": datetime.now(timezone.utc).isoformat() + "Z", "title": f"Dream Server {current}", "changelog": "Release information unavailable. Check GitHub directly.", "url": "https://github.com/Light-Heart-Labs/Lighthouse-AI/releases", "prerelease": False}],
+            "releases": [{"version": current, "date": datetime.now(timezone.utc).isoformat() + "Z", "title": f"Dream Server {current}", "changelog": "Release information unavailable. Check GitHub directly.", "url": "https://github.com/Light-Heart-Labs/DreamServer/releases", "prerelease": False}],
             "checked_at": datetime.now(timezone.utc).isoformat() + "Z",
             "error": "Could not fetch release information"
         }

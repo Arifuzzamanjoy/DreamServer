@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a bug in Lighthouse AI (Dream Server, Guardian, Memory Shepherd, Token Spy)
+description: Report a bug in Dream Server
 labels: ["bug"]
 body:
   - type: markdown

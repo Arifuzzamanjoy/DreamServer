@@ -12,6 +12,8 @@
 
 ![Dream Server Dashboard](docs/images/dashboard.png)
 
+[![Watch the demo](https://img.shields.io/badge/Demo-Watch%20on%20YouTube-red?logo=youtube)](https://youtu.be/nO8xFNHX-HA)
+
 </div>
 
 ---
