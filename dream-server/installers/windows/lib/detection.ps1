@@ -24,7 +24,7 @@ function Get-GpuInfo {
     $nvidiaSmi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
     if ($nvidiaSmi) {
         try {
-            $raw = & nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>$null
+            $raw = & nvidia-smi --query-gpu=name,memory.total,driver_version,compute_cap --format=csv,noheader 2>$null
             if ($LASTEXITCODE -eq 0 -and $raw) {
                 $lines = @($raw -split "`n" | Where-Object { $_.Trim() })
                 $first = $lines[0] -split ","
@@ -32,11 +32,19 @@ function Get-GpuInfo {
                 $vramStr = $first[1].Trim() -replace "[^\d]", ""
                 $vramMB  = [int]$vramStr
                 $driverVer = $first[2].Trim()
+                $computeCap = $first[3].Trim()
                 $gpuCount = $lines.Count
 
                 # Extract major driver version for minimum check
                 $driverMajor = 0
                 if ($driverVer -match "^(\d+)") { $driverMajor = [int]$Matches[1] }
+
+                # Blackwell detection: compute capability 12.0+ (sm_120)
+                $isBlackwell = $false
+                if ($computeCap -match "^(\d+)") {
+                    $ccMajor = [int]$Matches[1]
+                    if ($ccMajor -ge 12) { $isBlackwell = $true }
+                }
 
                 return @{
                     Backend       = "nvidia"
@@ -47,6 +55,8 @@ function Get-GpuInfo {
                     DeviceId      = ""
                     DriverVersion = $driverVer
                     DriverMajor   = $driverMajor
+                    ComputeCap    = $computeCap
+                    IsBlackwell   = $isBlackwell
                 }
             }
         } catch {
@@ -105,6 +115,8 @@ function Get-GpuInfo {
                 DeviceId      = $deviceId
                 DriverVersion = $driverVer
                 DriverMajor   = 0
+                ComputeCap    = ""
+                IsBlackwell   = $false
                 SystemRamGB   = $systemRamGB
             }
         }
@@ -122,6 +134,8 @@ function Get-GpuInfo {
         DeviceId      = ""
         DriverVersion = ""
         DriverMajor   = 0
+        ComputeCap    = ""
+        IsBlackwell   = $false
     }
 }
 
@@ -206,6 +220,55 @@ function Test-DockerDesktop {
     }
 
     return $result
+}
+
+function Test-ModelIntegrity {
+    <#
+    .SYNOPSIS
+        Verify a downloaded model file against its expected SHA256 hash.
+    .PARAMETER Path
+        Full path to the model file.
+    .PARAMETER ExpectedHash
+        Expected SHA256 hex string (lowercase).
+    .OUTPUTS
+        @{ Valid; ActualHash; ExpectedHash; SizeBytes }
+    #>
+    param(
+        [string]$Path,
+        [string]$ExpectedHash
+    )
+
+    if (-not (Test-Path $Path)) {
+        return @{
+            Valid        = $false
+            ActualHash   = ""
+            ExpectedHash = $ExpectedHash
+            SizeBytes    = 0
+        }
+    }
+
+    $fileInfo = Get-Item $Path
+    $sizeBytes = $fileInfo.Length
+
+    # Skip verification if no expected hash provided
+    if (-not $ExpectedHash) {
+        return @{
+            Valid        = $true
+            ActualHash   = "(skipped)"
+            ExpectedHash = ""
+            SizeBytes    = $sizeBytes
+        }
+    }
+
+    # Compute SHA256 (streams the file, works for multi-GB files)
+    $hash = (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLower()
+
+    return @{
+        Valid        = ($hash -eq $ExpectedHash.ToLower())
+        ActualHash   = $hash
+        ExpectedHash = $ExpectedHash.ToLower()
+        SizeBytes    = $sizeBytes
+    }
 }
 
 function Test-DiskSpace {

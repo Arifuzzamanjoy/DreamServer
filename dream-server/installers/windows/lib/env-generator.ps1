@@ -74,7 +74,8 @@ function New-DreamEnv {
         [hashtable]$TierConfig,
         [string]$Tier,
         [string]$GpuBackend = "nvidia",
-        [string]$DreamMode = "local"
+        [string]$DreamMode = "local",
+        [string]$LlamaServerImage = ""
     )
 
     # Generate secrets
@@ -163,6 +164,7 @@ GGUF_FILE=$($TierConfig.GgufFile)
 MAX_CONTEXT=$($TierConfig.MaxContext)
 CTX_SIZE=$($TierConfig.MaxContext)
 GPU_BACKEND=$GpuBackend
+$(if ($LlamaServerImage) { "LLAMA_SERVER_IMAGE=$LlamaServerImage" } else { "#LLAMA_SERVER_IMAGE=ghcr.io/ggml-org/llama.cpp:server-cuda" })
 
 #=== Ports ===
 LLAMA_SERVER_PORT=8080

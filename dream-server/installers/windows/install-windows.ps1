@@ -116,6 +116,7 @@ Write-InfoBox "Backend:" "$($gpuInfo.Backend)"
 
 if ($gpuInfo.Backend -eq "nvidia") {
     Write-InfoBox "Driver:" "$($gpuInfo.DriverVersion)"
+    Write-InfoBox "Compute:" "sm_$($gpuInfo.ComputeCap -replace '\.', '')"
     if ($gpuInfo.DriverMajor -lt $script:MIN_NVIDIA_DRIVER) {
         Write-AIWarn "NVIDIA driver $($gpuInfo.DriverVersion) is below minimum ($($script:MIN_NVIDIA_DRIVER))."
         Write-AI "Update at https://www.nvidia.com/Download/index.aspx"
@@ -126,7 +127,14 @@ if ($gpuInfo.Backend -eq "nvidia") {
     } else {
         Write-AIWarn "Docker GPU support not confirmed. NVIDIA Container Toolkit may need configuration."
     }
+    if ($gpuInfo.IsBlackwell) {
+        Write-AI "Blackwell GPU detected (sm_120). Will use CUDA 13 Docker image"
+        Write-AI "  with native Blackwell support (server-cuda13)."
+    }
 }
+
+# Track llama-server image override (set during Blackwell build if needed)
+$llamaServerImage = ""
 
 # Auto-select tier (or use override)
 if ($Cloud) {
@@ -276,7 +284,8 @@ if ($DryRun) {
     # NOTE: $(if ...) syntax required for PS 5.1 compatibility
     $dreamMode = $(if ($Cloud) { "cloud" } else { "local" })
     $envResult = New-DreamEnv -InstallDir $InstallDir -TierConfig $tierConfig `
-        -Tier $selectedTier -GpuBackend $gpuInfo.Backend -DreamMode $dreamMode
+        -Tier $selectedTier -GpuBackend $gpuInfo.Backend -DreamMode $dreamMode `
+        -LlamaServerImage $llamaServerImage
     Write-AISuccess "Generated .env with secure secrets"
 
     # Generate SearXNG config
@@ -318,6 +327,9 @@ if ($DryRun) {
         Write-AI "[DRY RUN] Would download llama-server.exe (Vulkan build)"
         Write-AI "[DRY RUN] Would start native llama-server on port 8080"
     }
+    if ($gpuInfo.IsBlackwell) {
+        Write-AI "[DRY RUN] Would use CUDA 13 image: ghcr.io/ggml-org/llama.cpp:server-cuda13"
+    }
     Write-AI "[DRY RUN] Would run: docker compose up -d"
 } else {
     # Change to install directory for docker compose
@@ -327,14 +339,49 @@ if ($DryRun) {
         # ── Download GGUF model (if not cloud-only) ──
         if ($tierConfig.GgufUrl -and -not $Cloud) {
             $modelPath = Join-Path (Join-Path $InstallDir "data\models") $tierConfig.GgufFile
-            if (Test-Path $modelPath) {
+            $needsDownload = -not (Test-Path $modelPath)
+
+            # If file exists and we have a hash, verify integrity
+            if ((Test-Path $modelPath) -and $tierConfig.GgufSha256) {
+                Write-AI "Verifying model integrity (SHA256)..."
+                $integrity = Test-ModelIntegrity -Path $modelPath -ExpectedHash $tierConfig.GgufSha256
+                if ($integrity.Valid) {
+                    Write-AISuccess "Model verified: $($tierConfig.GgufFile)"
+                } else {
+                    Write-AIWarn "Model file is corrupt (hash mismatch)."
+                    Write-AI "  Expected: $($integrity.ExpectedHash)"
+                    Write-AI "  Got:      $($integrity.ActualHash)"
+                    Write-AI "Removing corrupt file and re-downloading..."
+                    Remove-Item -Path $modelPath -Force
+                    $needsDownload = $true
+                }
+            } elseif (Test-Path $modelPath) {
                 Write-AISuccess "Model already downloaded: $($tierConfig.GgufFile)"
-            } else {
+            }
+
+            if ($needsDownload) {
                 $downloadOk = Show-ProgressDownload -Url $tierConfig.GgufUrl `
                     -Destination $modelPath -Label "Downloading $($tierConfig.GgufFile)"
                 if (-not $downloadOk) {
                     Write-AIError "Model download failed. Re-run the installer to resume."
                     exit 1
+                }
+
+                # Verify freshly downloaded file
+                if ($tierConfig.GgufSha256) {
+                    Write-AI "Verifying download integrity (SHA256)..."
+                    $integrity = Test-ModelIntegrity -Path $modelPath -ExpectedHash $tierConfig.GgufSha256
+                    if ($integrity.Valid) {
+                        Write-AISuccess "Download verified OK"
+                    } else {
+                        Write-AIError "Downloaded file is corrupt (SHA256 mismatch)."
+                        Write-AI "  Expected: $($integrity.ExpectedHash)"
+                        Write-AI "  Got:      $($integrity.ActualHash)"
+                        Write-AI "This may be caused by a partial download. Removing file."
+                        Remove-Item -Path $modelPath -Force
+                        Write-AIError "Re-run the installer to download again (without resume)."
+                        exit 1
+                    }
                 }
             }
         }
@@ -418,6 +465,35 @@ if ($DryRun) {
             } else {
                 Write-AIWarn "llama-server did not become healthy within ${maxWait}s. It may still be loading."
             }
+        }
+
+        # ── Blackwell: use CUDA 13 Docker image with sm_120 support ──
+        if ($gpuInfo.IsBlackwell -and -not $Cloud) {
+            Write-Chapter "BLACKWELL GPU IMAGE"
+            # The default server-cuda image (CUDA 12.4) lacks sm_120 kernels.
+            # The server-cuda13 image (CUDA 13.1) includes 120a-real natively.
+            $blackwellImage = "ghcr.io/ggml-org/llama.cpp:server-cuda13"
+            Write-AI "Using CUDA 13.1 image with native Blackwell support:"
+            Write-AI "  $blackwellImage"
+
+            # Check if a locally-built custom image exists (from a previous manual build)
+            $localImage = "llama-server-cuda-blackwell"
+            $localExists = docker image inspect $localImage 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                Write-AI "Local custom image '$localImage' also found."
+                Write-AI "Using the official CUDA 13 image (upstream-maintained)."
+            }
+
+            $llamaServerImage = $blackwellImage
+            Write-AISuccess "Blackwell image configured: $llamaServerImage"
+
+            # Patch .env with LLAMA_SERVER_IMAGE (generated earlier before build)
+            $envPath = Join-Path $InstallDir ".env"
+            $envContent = [System.IO.File]::ReadAllText($envPath)
+            $envContent = $envContent -replace "#LLAMA_SERVER_IMAGE=.*", "LLAMA_SERVER_IMAGE=$llamaServerImage"
+            $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+            [System.IO.File]::WriteAllText($envPath, $envContent, $utf8NoBom)
+            Write-AISuccess "Set LLAMA_SERVER_IMAGE=$llamaServerImage in .env"
         }
 
         # ── Assemble Docker Compose flags ──
