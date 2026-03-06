@@ -25,7 +25,11 @@ else
         ai "Installing Node.js..."
         case "$PKG_MANAGER" in
             apt)
-                curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - >> "$LOG_FILE" 2>&1 || true
+                tmpfile=$(mktemp /tmp/nodesource-setup.XXXXXX.sh)
+                if curl -fsSL https://deb.nodesource.com/setup_22.x -o "$tmpfile" 2>/dev/null; then
+                    sudo -E bash "$tmpfile" >> "$LOG_FILE" 2>&1 || true
+                fi
+                rm -f "$tmpfile"
                 sudo apt-get install -y nodejs >> "$LOG_FILE" 2>&1 || true
                 ;;
             dnf)
@@ -86,11 +90,13 @@ else
     # ── OpenCode (local agentic coding platform) ──
     if ! command -v opencode &> /dev/null && [[ ! -x "$HOME/.opencode/bin/opencode" ]]; then
         ai "Installing OpenCode..."
-        if curl -fsSL https://opencode.ai/install 2>/dev/null | bash >> "$LOG_FILE" 2>&1; then
+        tmpfile=$(mktemp /tmp/opencode-install.XXXXXX.sh)
+        if curl -fsSL https://opencode.ai/install -o "$tmpfile" 2>/dev/null && bash "$tmpfile" >> "$LOG_FILE" 2>&1; then
             ai_ok "OpenCode installed (~/.opencode/bin/opencode)"
         else
             ai_warn "OpenCode install failed — install later with: curl -fsSL https://opencode.ai/install | bash"
         fi
+        rm -f "$tmpfile"
     else
         ai_ok "OpenCode already installed"
     fi

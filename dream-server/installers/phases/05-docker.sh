@@ -32,9 +32,12 @@ else
     if $DRY_RUN; then
         log "[DRY RUN] Would install Docker via official script"
     else
-        if ! curl -fsSL https://get.docker.com | sh; then
+        tmpfile=$(mktemp /tmp/install-docker.XXXXXX.sh)
+        if ! curl -fsSL https://get.docker.com -o "$tmpfile" || ! sh "$tmpfile"; then
+            rm -f "$tmpfile"
             error "Docker installation failed. Check network connectivity and try again."
         fi
+        rm -f "$tmpfile"
         sudo usermod -aG docker $USER
 
         # Check if we need to use newgrp or restart
