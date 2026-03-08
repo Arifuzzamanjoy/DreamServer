@@ -2,7 +2,7 @@
 
 Production-tested tools, frameworks, research, and recipes from building a local AI stack. Everything here was built by the Light Heart Labs team (4 AI agents + humans) while developing DreamServer.
 
-**315+ files. Zero fluff.**
+**459 files. Zero fluff.**
 
 ---
 
@@ -76,6 +76,7 @@ GPU cluster setup, deployment runbooks, golden build reference, LiveKit deployme
 | Project | Status | What It Is |
 |---------|--------|-----------|
 | [`normie-installer/`](dev/normie-installer/) | Testing | One-click installers for Windows (.bat/.ps1/.exe), macOS (.command/Homebrew), and Linux. Handles Docker, WSL2, GPU drivers — everything a non-technical user needs. |
+| [`extensions-library/`](dev/extensions-library/) | Testing | 33 service extensions (Ollama, Bark, ComfyUI, Immich, CrewAI, etc.) with manifests, compose files, workflows, and templates. The next wave of DreamServer services. |
 | [`bootstrap/`](dev/bootstrap/) | Testing | Docker bootstrap image (~50MB) for running the installer in environments where installing dependencies directly isn't practical. |
 | [`download-page/`](dev/download-page/) | Draft | Static landing page that auto-detects OS and shows the right install command. |
 

@@ -45,6 +45,27 @@ A lightweight Docker image containing everything needed to run the DreamServer i
 
 Static HTML download page for `dreamserver.dev/download` (or equivalent). Auto-detects visitor's OS and shows the right installation command. Single-file, no dependencies, deploys anywhere.
 
+### [`extensions-library/`](extensions-library/) — 33 Service Extensions
+
+**The next wave of DreamServer services.** 17 extensions are already in production — these 33 are being tested for the next release.
+
+Each extension is a self-contained directory with a `manifest.yaml`, `compose.yaml`, and optional Dockerfiles and workflows. Drop any of them into your DreamServer's `extensions/services/` directory.
+
+| Category | Services |
+|----------|----------|
+| **LLM & Chat** | Ollama, LocalAI, Text Generation WebUI, Jan, LibreChat |
+| **Voice & Audio** | Bark TTS, XTTS, Piper, RVC, AudioCraft |
+| **Image Gen** | ComfyUI, Fooocus, InvokeAI, Forge |
+| **AI Dev & Agents** | Aider, Continue, CrewAI, Open Interpreter, Jupyter |
+| **Vector DBs** | ChromaDB, Milvus, Weaviate |
+| **Workflow Automation** | Flowise, Langflow, Dify |
+| **Self-Hosted Apps** | Immich, Paperless-ngx, Frigate, Gitea, Baserow, SillyTavern |
+| **Data & ML** | Label Studio, AnythingLLM, Privacy Shield |
+
+Also includes: 24 pre-built workflows, a JSON Schema for manifest validation, and 5 templates for building your own extensions.
+
+See [`extensions-library/README.md`](extensions-library/README.md) for the full catalog, usage instructions, and how to build your own.
+
 ---
 
 ## How to Use These
@@ -80,8 +101,16 @@ Found a bug in the installer? OS-specific edge case? Open an issue or PR. These 
 
 ## Roadmap
 
+**Normie Installer**
 - [ ] Windows `.exe` installer via NSIS build pipeline
 - [ ] Homebrew tap for macOS (`brew install dreamserver`)
 - [ ] Auto-update mechanism
 - [ ] Offline/air-gapped installation mode
 - [ ] ARM64 Linux support (Raspberry Pi, Jetson)
+
+**Extensions Library**
+- [ ] Graduate next batch of services to production
+- [ ] AMD ROCm support for more GPU services
+- [ ] Apple Silicon (MPS) support for image generation
+- [ ] Extension dependency resolution in `dream enable`
+- [ ] One-command extension marketplace: `dream install <service>`
