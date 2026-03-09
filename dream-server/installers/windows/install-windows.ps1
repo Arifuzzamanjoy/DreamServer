@@ -791,7 +791,7 @@ if (-not $Cloud -and (Test-Path $script:OPENCODE_EXE)) {
 }
 
 Write-AI "Running health checks..."
-$maxAttempts = 30
+$maxAttempts = 60
 $allHealthy = $true
 
 foreach ($check in $healthChecks) {
