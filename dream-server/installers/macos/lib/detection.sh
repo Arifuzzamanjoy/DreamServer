@@ -111,6 +111,9 @@ test_disk_space() {
     local path="${1:-$HOME}"
     local required_gb="${2:-30}"
 
+    # Walk up to nearest existing parent if path doesn't exist yet (first install)
+    while [[ ! -d "$path" ]]; do path="$(dirname "$path")"; done
+
     # macOS df with -g flag shows GB
     local free_gb
     free_gb=$(df -g "$path" 2>/dev/null | tail -1 | awk '{print $4}')

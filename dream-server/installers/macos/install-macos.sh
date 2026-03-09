@@ -115,7 +115,7 @@ fi
 ai_ok "Docker Desktop running (v${DOCKER_VERSION})"
 
 # Disk space
-test_disk_space "$HOME" 30
+test_disk_space "$INSTALL_DIR" 30
 info_box "Disk free:" "${DISK_FREE_GB} GB"
 if ! $DISK_SUFFICIENT; then
     ai_err "At least ${DISK_REQUIRED_GB} GB free space required. Found ${DISK_FREE_GB} GB."
@@ -196,7 +196,7 @@ elif [[ "$GGUF_FILE" =~ 14B ]]; then
 else
     NEEDED_GB=23
 fi
-test_disk_space "$HOME" "$NEEDED_GB"
+test_disk_space "$INSTALL_DIR" "$NEEDED_GB"
 if ! $DISK_SUFFICIENT; then
     ai_warn "Tier ${SELECTED_TIER} needs ~${NEEDED_GB} GB (model + Docker images). Only ${DISK_FREE_GB} GB free."
     if ! $FORCE; then exit 1; fi
