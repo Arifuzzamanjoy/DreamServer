@@ -78,7 +78,7 @@ jobs:
         run: |
           echo "=== /etc/os-release ==="
           cat /etc/os-release
-          source /etc/os-release
+          . /etc/os-release
           echo "ID=$ID"
           echo "ID_LIKE=${ID_LIKE:-none}"
 
