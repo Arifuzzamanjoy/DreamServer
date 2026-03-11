@@ -65,3 +65,4 @@ dream-server/internal/
 # Archived / deprecated code (pre-v2.0)
 # ============================================
 archive/
+.claude/
