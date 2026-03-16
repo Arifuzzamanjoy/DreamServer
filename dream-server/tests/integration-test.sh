@@ -88,6 +88,18 @@ else
                 fail "JSON missing required field: $field"
             fi
         done
+
+        # Regression test: json_escape must handle quoted GPU names correctly
+        escaped_output=$(bash -lc '
+            . "'"$PROJECT_DIR"'/scripts/detect-hardware.sh"
+            escaped=$(json_escape '\''NVIDIA "GeForce" RTX 4090'\'')
+            printf "{\"gpu_name\":\"%s\"}\n" "$escaped"
+        ' 2>/dev/null) || true
+        if echo "$escaped_output" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['gpu_name'] == 'NVIDIA \"GeForce\" RTX 4090'" 2>/dev/null; then
+            pass "json_escape handles embedded double quotes"
+        else
+            fail "json_escape does not escape embedded double quotes correctly" "$escaped_output"
+        fi
     else
         fail "detect-hardware.sh --json does not produce valid JSON" "$json_output"
     fi

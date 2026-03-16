@@ -40,7 +40,7 @@ first_line() {
 json_escape() {
     local s="$1"
     s=${s//\\/\\\\}
-    s=${s//"/\\"}
+    s=${s//\"/\\\"}
     s=${s//$'\n'/\\n}
     s=${s//$'\r'/\\r}
     s=${s//$'\t'/\\t}
@@ -590,4 +590,6 @@ EOF
     fi
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
