@@ -646,6 +646,37 @@ cmd_list() {
 #=============================================================================
 PRESETS_DIR="${INSTALL_DIR}/presets"
 
+# Validate preset compatibility with current system
+validate_preset_compatibility() {
+    local preset_dir="$1"
+    local preset_name="$(basename "$preset_dir")"
+
+    # Check required files
+    [[ -f "$preset_dir/meta.txt" ]] || { error "Invalid preset: missing meta.txt"; return 1; }
+    [[ -f "$preset_dir/extensions.list" ]] || { error "Invalid preset: missing extensions.list"; return 1; }
+    [[ -f "$preset_dir/env" ]] || { warn "Preset missing .env file (will not restore config)"; }
+
+    # Check if referenced extensions still exist
+    local missing_exts=()
+    while IFS=: read -r state sid; do
+        [[ -z "$sid" ]] && continue
+        local ext_dir="$INSTALL_DIR/extensions/services/$sid"
+        if [[ ! -d "$ext_dir" ]]; then
+            missing_exts+=("$sid")
+        fi
+    done < "$preset_dir/extensions.list"
+
+    if [[ ${#missing_exts[@]} -gt 0 ]]; then
+        log "⚠️  Preset references extensions that are no longer available:"
+        for ext in "${missing_exts[@]}"; do
+            log "   - $ext"
+        done
+        log "These extensions will be skipped during restore."
+    fi
+
+    return 0
+}
+
 cmd_preset() {
     check_install
     sr_load
@@ -696,6 +727,11 @@ META
             [[ -d "$preset_dir" ]] || error "Preset not found: $name"
 
             echo -e "${BLUE}━━━ Loading Preset: ${name} ━━━${NC}"
+
+            # Validate preset compatibility
+            if ! validate_preset_compatibility "$preset_dir"; then
+                return 1
+            fi
 
             # Show what will be restored
             if [[ -f "$preset_dir/meta.txt" ]]; then
