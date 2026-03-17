@@ -234,3 +234,18 @@ class TestLoadExtensionManifests:
         assert "broken-svc" in errors[0]["file"]
         assert services == {}
         assert features == []
+
+    def test_collects_error_for_missing_service_id(self, tmp_path):
+        """A manifest with a valid schema but no service.id collects an error."""
+        svc_dir = tmp_path / "no-id-svc"
+        svc_dir.mkdir()
+        (svc_dir / "manifest.yaml").write_text(
+            "schema_version: dream.services.v1\n"
+            "service:\n  name: No ID\n  port: 80\n"
+        )
+
+        services, features, errors = load_extension_manifests(tmp_path, "nvidia")
+        assert len(errors) == 1
+        assert "service.id is required" in errors[0]["error"]
+        assert "no-id-svc" in errors[0]["file"]
+        assert services == {}

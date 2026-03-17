@@ -251,6 +251,7 @@ async def api_status(api_key: str = Depends(verify_api_key)):
             "ram": {"used_gb": 0, "total_gb": 0, "percent": 0},
             "inference": {"tokensPerSecond": 0, "lifetimeTokens": 0,
                           "loadedModel": None, "contextSize": None},
+            "manifest_errors": MANIFEST_ERRORS,
         }
 
 
