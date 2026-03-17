@@ -5,6 +5,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
+import httpx
 import pytest
 
 from helpers import (
@@ -288,9 +289,9 @@ class TestCheckServiceHealth:
         assert result.status == "down"
 
     @pytest.mark.asyncio
-    async def test_down_on_unexpected_exception(self, monkeypatch):
+    async def test_down_on_os_error(self, monkeypatch):
         session = MagicMock()
-        session.get = MagicMock(side_effect=RuntimeError("boom"))
+        session.get = MagicMock(side_effect=OSError("connection refused"))
         monkeypatch.setattr("helpers._get_aio_session", AsyncMock(return_value=session))
 
         result = await check_service_health("test-svc", self._CONFIG)
@@ -394,7 +395,7 @@ class TestGetLlamaMetrics:
         monkeypatch.setattr("helpers.SERVICES", fake_services)
 
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(side_effect=Exception("connection refused"))
+        mock_client.get = AsyncMock(side_effect=OSError("connection refused"))
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
@@ -466,7 +467,7 @@ class TestGetLoadedModel:
         monkeypatch.setattr("helpers.SERVICES", fake_services)
 
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(side_effect=Exception("unreachable"))
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("unreachable"))
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
@@ -511,7 +512,7 @@ class TestGetLlamaContextSize:
         monkeypatch.setattr("helpers.SERVICES", fake_services)
 
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(side_effect=Exception("unreachable"))
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("unreachable"))
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 

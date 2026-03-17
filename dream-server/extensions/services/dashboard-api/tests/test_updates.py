@@ -1,6 +1,7 @@
 """Tests for routers/updates.py — version checking and update endpoints."""
 
 import json
+import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -24,7 +25,7 @@ class TestGetVersion:
         # Mock urllib to simulate GitHub check failure (isolate version reading)
         monkeypatch.setattr(
             "urllib.request.urlopen",
-            MagicMock(side_effect=Exception("network unavailable")),
+            MagicMock(side_effect=urllib.error.URLError("network unavailable")),
         )
 
         resp = test_client.get("/api/version", headers=test_client.auth_headers)
@@ -99,7 +100,7 @@ class TestGetVersion:
 
         monkeypatch.setattr(
             "urllib.request.urlopen",
-            MagicMock(side_effect=Exception("timeout")),
+            MagicMock(side_effect=urllib.error.URLError("timeout")),
         )
 
         resp = test_client.get("/api/version", headers=test_client.auth_headers)
@@ -115,7 +116,7 @@ class TestGetVersion:
 
         monkeypatch.setattr(
             "urllib.request.urlopen",
-            MagicMock(side_effect=Exception("timeout")),
+            MagicMock(side_effect=urllib.error.URLError("timeout")),
         )
 
         resp = test_client.get("/api/version", headers=test_client.auth_headers)
@@ -158,7 +159,7 @@ class TestGetReleaseManifest:
 
         monkeypatch.setattr(
             "urllib.request.urlopen",
-            MagicMock(side_effect=Exception("network error")),
+            MagicMock(side_effect=urllib.error.URLError("network error")),
         )
 
         resp = test_client.get("/api/releases/manifest", headers=test_client.auth_headers)
