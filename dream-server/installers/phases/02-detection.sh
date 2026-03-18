@@ -325,8 +325,9 @@ fi
 # Resolve compose overlay files
 resolve_compose_config
 
-# Validate compose stack syntax before proceeding
-if [[ -n "${COMPOSE_FLAGS:-}" ]]; then
+# Validate compose stack syntax before proceeding (skip on fresh install — .env
+# is not generated until phase 06, so variable interpolation would fail)
+if [[ -n "${COMPOSE_FLAGS:-}" ]] && [[ -f "$INSTALL_DIR/.env" ]]; then
     ai "Validating compose stack configuration..."
     if "$SCRIPT_DIR/scripts/validate-compose-stack.sh" --compose-flags "$COMPOSE_FLAGS" --quiet >> "$LOG_FILE" 2>&1; then
         ai_ok "Compose stack validated"
