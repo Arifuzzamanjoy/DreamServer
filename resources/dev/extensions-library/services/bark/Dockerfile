@@ -1,6 +1,7 @@
 # Bark TTS — builds a minimal FastAPI server wrapping suno-ai/bark
-# Pinned: bark==0.1.5, pytorch 2.3.1, CUDA 12.1
-FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime@sha256:2d1dee23cc95bf01aad2a292c10f051b01ddc6e7fa7535620cc8a7457720794c
+# Multi-arch base (amd64 + arm64). Default pip wheels include CUDA support
+# on amd64; the compose.nvidia.yaml overlay provides GPU device access.
+FROM python:3.10-slim
 
 WORKDIR /app
 
@@ -11,6 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
+
+# Install PyTorch — default wheels include CUDA on amd64, CPU-only on arm64
+RUN pip install --no-cache-dir torch torchaudio
 
 # Install Python dependencies — pinned versions
 RUN pip install --no-cache-dir \

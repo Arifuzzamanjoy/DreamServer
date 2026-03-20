@@ -61,6 +61,8 @@ Bark understands non-verbal cues in brackets:
 | Small models (`BARK_USE_SMALL_MODELS=true`) | ~2GB |
 | CPU offload | <1GB VRAM (slow) |
 
+> **Apple Silicon / ARM64:** Bark runs in CPU mode on Apple Silicon. Inference is slower than GPU but fully functional.
+
 ## Environment Variables
 
 | Variable | Default | Description |
