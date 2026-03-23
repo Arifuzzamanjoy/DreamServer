@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from fastapi import HTTPException
 
 # Import the module under test
-from extensions.services.bark import server
+import server
 
 client = TestClient(server.app)
 
@@ -29,7 +29,7 @@ def reset_globals():
 @pytest.fixture
 def mock_bark_generate_audio():
     """Mock bark.generate_audio to return a simple audio array."""
-    with patch("extensions.services.bark.server.generate_audio") as mock:
+    with patch("bark.generate_audio") as mock:
         # Generate a simple 1-second audio array at 24kHz (numpy array, not list)
         mock.return_value = np.array([0.1] * 24000, dtype=np.float32)
         yield mock
@@ -38,14 +38,14 @@ def mock_bark_generate_audio():
 @pytest.fixture
 def mock_bark_preload_models():
     """Mock bark.preload_models."""
-    with patch("extensions.services.bark.server.preload_models") as mock:
+    with patch("bark.preload_models") as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_soundfile_write():
     """Mock soundfile.write."""
-    with patch("extensions.services.bark.server.sf.write") as mock:
+    with patch("server.sf.write") as mock:
         # Make it write to the provided buffer
         def side_effect(buf, audio_array, sample_rate, format=None):
             # Simulate writing by just seeking to end
@@ -59,7 +59,7 @@ def mock_soundfile_write():
 @pytest.fixture
 def mock_soundfile_read():
     """Mock soundfile.read for stream endpoint."""
-    with patch("extensions.services.bark.server.sf.read") as mock:
+    with patch("server.sf.read") as mock:
         mock.return_value = (np.array([0.1] * 24000, dtype=np.float32), 24000)
         yield mock
 
@@ -88,7 +88,7 @@ def test_health_after_load(mock_bark_preload_models):
 # Tests for /tts endpoint
 def test_tts_success(mock_bark_generate_audio, mock_soundfile_write):
     """Test successful TTS request."""
-    with patch("extensions.services.bark.server._models_loaded", True):
+    with patch("server._models_loaded", True):
         response = client.post("/tts", json={
             "text": "Hello, world!",
             "voice_preset": "v2/en_speaker_6",
@@ -104,7 +104,7 @@ def test_tts_success(mock_bark_generate_audio, mock_soundfile_write):
 
 def test_tts_default_format(mock_bark_generate_audio, mock_soundfile_write):
     """Test TTS with default format (wav)."""
-    with patch("extensions.services.bark.server._models_loaded", True):
+    with patch("server._models_loaded", True):
         response = client.post("/tts", json={
             "text": "Hello, world!",
         })
@@ -115,7 +115,7 @@ def test_tts_default_format(mock_bark_generate_audio, mock_soundfile_write):
 
 def test_tts_case_insensitive_format(mock_bark_generate_audio, mock_soundfile_write):
     """Test TTS with lowercase format."""
-    with patch("extensions.services.bark.server._models_loaded", True):
+    with patch("server._models_loaded", True):
         response = client.post("/tts", json={
             "text": "Hello, world!",
             "output_format": "mp3"
@@ -156,7 +156,7 @@ def test_tts_text_empty():
 def test_tts_model_loading_on_first_request(mock_bark_preload_models, mock_bark_generate_audio, mock_soundfile_write):
     """Test that models are loaded on first request."""
     # Ensure models are not loaded
-    with patch("extensions.services.bark.server._models_loaded", False):
+    with patch("server._models_loaded", False):
         response = client.post("/tts", json={
             "text": "Hello, world!",
         })
@@ -167,7 +167,7 @@ def test_tts_model_loading_on_first_request(mock_bark_preload_models, mock_bark_
 
 def test_tts_concurrent_requests(mock_bark_preload_models, mock_bark_generate_audio, mock_soundfile_write):
     """Test concurrent TTS requests."""
-    with patch("extensions.services.bark.server._models_loaded", False):
+    with patch("server._models_loaded", False):
         # Make multiple concurrent requests
         threads = []
         results = []
@@ -196,7 +196,7 @@ def test_tts_concurrent_requests(mock_bark_preload_models, mock_bark_generate_au
 # Tests for /tts/stream endpoint
 def test_tts_stream_success(mock_bark_generate_audio, mock_soundfile_write):
     """Test successful TTS stream request."""
-    with patch("extensions.services.bark.server._models_loaded", True):
+    with patch("server._models_loaded", True):
         response = client.post("/tts/stream", json={
             "text": "Hello, world!",
             "voice_preset": "v2/en_speaker_6"
@@ -209,7 +209,7 @@ def test_tts_stream_success(mock_bark_generate_audio, mock_soundfile_write):
 
 def test_tts_stream_default_format(mock_bark_generate_audio, mock_soundfile_write):
     """Test TTS stream always returns WAV regardless of format."""
-    with patch("extensions.services.bark.server._models_loaded", True):
+    with patch("server._models_loaded", True):
         response = client.post("/tts/stream", json={
             "text": "Hello, world!",
             "output_format": "mp3"  # This should be ignored for stream endpoint
@@ -242,7 +242,7 @@ def test_tts_text_max_length_boundary():
 def test_tts_generation_error(mock_bark_generate_audio):
     """Test TTS when bark.generate_audio raises an exception."""
     mock_bark_generate_audio.side_effect = Exception("Bark error")
-    with patch("extensions.services.bark.server._models_loaded", True):
+    with patch("server._models_loaded", True):
         response = client.post("/tts", json={
             "text": "Hello, world!",
         })
@@ -253,7 +253,7 @@ def test_tts_generation_error(mock_bark_generate_audio):
 def test_tts_stream_generation_error(mock_bark_generate_audio):
     """Test TTS stream when bark.generate_audio raises an exception."""
     mock_bark_generate_audio.side_effect = Exception("Bark error")
-    with patch("extensions.services.bark.server._models_loaded", True):
+    with patch("server._models_loaded", True):
         response = client.post("/tts/stream", json={
             "text": "Hello, world!",
         })
