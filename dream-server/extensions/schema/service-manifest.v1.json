@@ -60,7 +60,7 @@
         "type": { "type": "string", "enum": ["docker", "host-systemd"] },
         "gpu_backends": {
           "type": "array",
-          "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "all"] },
+          "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "cpu", "none", "all"] },
           "minItems": 1
         },
         "compose_file": {
@@ -127,7 +127,7 @@
           "priority": { "type": "integer", "minimum": 1 },
           "gpu_backends": {
             "type": "array",
-            "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "all"] },
+            "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "cpu", "none", "all"] },
             "minItems": 1
           }
         },
