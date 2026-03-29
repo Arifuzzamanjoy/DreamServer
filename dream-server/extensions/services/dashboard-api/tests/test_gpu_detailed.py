@@ -3,12 +3,8 @@
 import asyncio
 import base64
 import json
-import tempfile
 from collections import deque
-from pathlib import Path
 from unittest.mock import patch
-
-import pytest
 
 from gpu import (
     decode_gpu_assignment,
@@ -16,7 +12,6 @@ from gpu import (
     get_gpu_info_nvidia_detailed,
     read_gpu_topology,
 )
-from models import IndividualGPU
 
 
 # ============================================================================
@@ -236,7 +231,6 @@ class TestGetGpuInfoAmdDetailed:
 
     def test_returns_none_when_no_amd(self, monkeypatch):
         monkeypatch.setattr("gpu._read_sysfs", lambda p: None)
-        import glob as real_glob
         with patch("glob.glob", return_value=[]):
             result = get_gpu_info_amd_detailed()
         assert result is None

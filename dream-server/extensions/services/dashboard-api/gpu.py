@@ -95,7 +95,7 @@ def get_gpu_info_amd() -> Optional[GPUInfo]:
             if power_str:
                 power_w = round(int(power_str) / 1e6, 1)
 
-        gpu_name = _read_sysfs(f"{base}/product_name") or "AMD Radeon (Strix Halo)"
+        gpu_name = _read_sysfs(f"{base}/product_name") or "AMD Radeon"
         memory_type = "unified" if is_unified else "discrete"
 
         mem_used_mb = mem_used // (1024 * 1024)
@@ -381,7 +381,7 @@ def _read_env_var_from_file(key: str) -> str:
     try:
         for line in env_path.read_text().splitlines():
             if line.startswith(f"{key}="):
-                return line[len(key) + 1:].strip()
+                return line[len(key) + 1:].strip().strip("\"'")
     except OSError:
         pass
     return ""
@@ -498,7 +498,7 @@ def get_gpu_info_amd_detailed() -> Optional[list[IndividualGPU]]:
                 if power_str:
                     power_w = round(int(power_str) / 1e6, 1)
 
-            gpu_name = _read_sysfs(f"{base}/product_name") or "AMD Radeon (Strix Halo)"
+            gpu_name = _read_sysfs(f"{base}/product_name") or "AMD Radeon"
             card_id = base.split("/")[-2]  # "card0", "card1", …
             mem_used_mb = mem_used // (1024 * 1024)
             mem_total_mb = mem_total // (1024 * 1024)
