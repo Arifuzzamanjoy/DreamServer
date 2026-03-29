@@ -411,6 +411,10 @@ if ($dryRun) {
             }
         } elseif ($gpuInfo.Backend -eq "amd") {
             $composeFlags += @("-f", "installers/windows/docker-compose.windows-amd.yml")
+        } else {
+            # No supported GPU detected (Intel integrated, etc.) — use CPU-only overlay
+            Write-AIWarn "No supported GPU detected. Using CPU-only inference (slower)."
+            $composeFlags += @("-f", "docker-compose.cpu.yml")
         }
 
         # Discover enabled extension compose fragments via manifests
@@ -514,12 +518,19 @@ if ($dryRun) {
         Write-AI "Running: docker compose $($composeFlags -join ' ') up -d"
         # PS 5.1 treats ANY stderr output from native commands as NativeCommandError.
         # Silence stderr-as-error so $LASTEXITCODE reflects the real compose exit code.
-        # Keep streaming pipeline for real-time progress feedback during image pulls/builds.
+        # Write output to log file to avoid ForEach-Object pipeline hang on failure.
         $prevEAP = $ErrorActionPreference
         $ErrorActionPreference = "SilentlyContinue"
-        & docker compose @composeFlags up -d 2>&1 | ForEach-Object { Write-Host "  $_" }
+        $_composeLogDir = Join-Path $installDir "logs"
+        if (-not (Test-Path $_composeLogDir)) { New-Item -ItemType Directory -Path $_composeLogDir -Force | Out-Null }
+        $_composeLog = Join-Path $_composeLogDir "compose-up.log"
+        & docker compose @composeFlags up -d *> $_composeLog
         $composeExit = $LASTEXITCODE
         $ErrorActionPreference = $prevEAP
+        # Show tail of compose output for immediate feedback
+        if (Test-Path $_composeLog) {
+            Get-Content $_composeLog -Tail 20 | ForEach-Object { Write-Host "  $_" }
+        }
         if ($composeExit -ne 0) {
             Write-AIError "docker compose up failed (exit code: $composeExit)"
             # The streaming output above may have scrolled past or PS 5.1 may have

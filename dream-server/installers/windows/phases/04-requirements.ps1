@@ -83,10 +83,16 @@ $_minRamGB = switch ($selectedTier) {
     default      { 16 }
 }
 
-if ($systemRamGB -lt $_minRamGB) {
+# Hard floor: Docker Desktop + WSL2 + containers need at least 8 GB to function
+if ($systemRamGB -lt 8) {
+    Write-AIBad "RAM: ${systemRamGB} GB detected. Dream Server requires at least 8 GB."
+    Write-AIBad "Docker Desktop + WSL2 + services need more memory than is available."
+    Write-AI "  With ${systemRamGB} GB, Docker alone consumes most available RAM."
+    $requirementsMet = $false
+} elseif ($systemRamGB -lt $_minRamGB) {
     Write-AIWarn "RAM: ${systemRamGB} GB available, ${_minRamGB} GB recommended for Tier $selectedTier."
     Write-AI "  Performance may be limited. Consider a lower tier with: --Tier <N>"
-    # RAM is a warning, not a hard blocker -- users may have trimmed WSL2 memory
+    # Tier-specific RAM is a warning, not a hard blocker -- users may have trimmed WSL2 memory
 } else {
     Write-AISuccess "RAM: ${systemRamGB} GB OK (>= ${_minRamGB} GB for Tier $selectedTier)"
 }
