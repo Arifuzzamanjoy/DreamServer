@@ -276,7 +276,7 @@ class TestUserExtensionStatus:
         assert ext["status"] == "enabled"
 
     def test_user_ext_compose_yaml_no_service(self, test_client, monkeypatch, tmp_path):
-        """User extension with compose.yaml but no running container → disabled."""
+        """User extension with compose.yaml but no running container → enabled (file-based status)."""
         user_dir = tmp_path / "user"
         ext_dir = user_dir / "my-ext"
         ext_dir.mkdir(parents=True)
@@ -297,7 +297,7 @@ class TestUserExtensionStatus:
         assert resp.status_code == 200
         ext = resp.json()["extensions"][0]
         assert ext["id"] == "my-ext"
-        assert ext["status"] == "disabled"
+        assert ext["status"] == "enabled"
 
     def test_user_ext_compose_yaml_disabled(self, test_client, monkeypatch, tmp_path):
         """User extension with compose.yaml.disabled → disabled."""
@@ -519,7 +519,7 @@ class TestEnableExtension:
 
     def test_enable_missing_dependency_400(self, test_client, monkeypatch, tmp_path):
         """400 when a dependency is not enabled."""
-        manifest = {"depends_on": ["missing-dep"]}
+        manifest = {"service": {"depends_on": ["missing-dep"]}}
         user_dir = _setup_user_ext(tmp_path, "my-ext", enabled=False,
                                    manifest=manifest)
         _patch_mutation_config(monkeypatch, tmp_path, user_dir=user_dir)
