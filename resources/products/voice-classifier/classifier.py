@@ -5,9 +5,12 @@ Abstract base + implementations for intent classification.
 Todd's DistilBERT will implement the base interface.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -240,8 +243,14 @@ Respond ONLY with JSON in this exact format:
             
             return ClassificationResult(intent, confidence)
             
+        except (ConnectionError, TimeoutError, OSError) as e:
+            logger.warning("QwenClassifier network error: %s", e)
+            return ClassificationResult("fallback", 0.0)
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.warning("QwenClassifier response parsing error: %s", e)
+            return ClassificationResult("fallback", 0.0)
         except Exception as e:
-            # Fallback on any error
+            logger.error("QwenClassifier unexpected error: %s", e, exc_info=True)
             return ClassificationResult("fallback", 0.0)
     
     def predict_batch(self, texts: List[str]) -> List[ClassificationResult]:

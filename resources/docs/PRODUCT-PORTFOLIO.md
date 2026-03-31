@@ -1,6 +1,6 @@
-# Product Portfolio — Lightheart Labs
+# Product Portfolio — Light Heart Labs
 
-_Michael's AI consulting business — packaged offerings_
+_Light Heart Labs — packaged offerings_
 
 ---
 
@@ -90,7 +90,7 @@ _Michael's AI consulting business — packaged offerings_
 
 ## Consulting Services
 
-Beyond products, Michael offers:
+Beyond products, Light Heart Labs offers:
 
 | Service | Rate | Description |
 |---------|------|-------------|

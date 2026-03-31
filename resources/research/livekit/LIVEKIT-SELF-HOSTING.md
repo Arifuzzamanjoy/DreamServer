@@ -4,7 +4,7 @@
 
 ## Executive Summary
 
-LiveKit is an open-source WebRTC SFU (Selective Forwarding Unit) that can be fully self-hosted. It's a strong candidate for Michael's voice agent infrastructure — real-time bidirectional audio/video with sub-100ms latency, no cloud dependency.
+LiveKit is an open-source WebRTC SFU (Selective Forwarding Unit) that can be fully self-hosted. It's a strong candidate for DreamServer's voice agent infrastructure — real-time bidirectional audio/video with sub-100ms latency, no cloud dependency.
 
 **Bottom line:** Self-hosting is straightforward for small deployments. Our GPU cluster (.122/.143) is overkill for LiveKit itself, but ideal for the AI pipeline it feeds into (STT → LLM → TTS).
 

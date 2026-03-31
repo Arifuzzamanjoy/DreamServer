@@ -1,6 +1,6 @@
-# Deployment Runbook for Michael
+# Deployment Runbook
 
-*Quick steps to unblock The Collective — do these when you have 15 minutes*
+*Quick steps to unblock the team — do these when you have 15 minutes*
 
 ## Priority 1: vLLM Tool Proxy v2.1 (5 min)
 
@@ -12,8 +12,8 @@ cd /path/to/vllm-tool-proxy
 # Backup current
 cp vllm-tool-proxy.py vllm-tool-proxy-v1-backup.py
 
-# Get v2.1 from Android-Labs
-cp ~/Android-Labs/tools/vllm-tool-proxy-v2.py ./vllm-tool-proxy.py
+# Get v2.1 from DreamServer
+cp ~/DreamServer/resources/tools/vllm-tool-proxy-v2.py ./vllm-tool-proxy.py
 
 # Restart the service
 sudo systemctl restart vllm-tool-proxy
@@ -47,7 +47,7 @@ python3 -m venv test-venv && rm -rf test-venv && echo "Works!"
 **Once python3.12-venv is installed:**
 
 ```bash
-cd ~/Android-Labs/tools/intent-classifier
+cd ~/DreamServer/resources/tools/intent-classifier
 
 # Create venv
 python3 -m venv .venv
@@ -85,4 +85,4 @@ If something breaks, ping us in #general. We can debug remotely if you share ter
 
 ---
 
-*Created by The Collective — 2026-02-09*
+*Created by Light Heart Labs — 2026-02-09*

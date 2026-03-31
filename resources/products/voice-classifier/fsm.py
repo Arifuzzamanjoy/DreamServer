@@ -6,10 +6,13 @@ Provides deterministic responses without LLM calls.
 """
 
 import json
+import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Callable, Any
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 class FlowStatus(Enum):
@@ -79,16 +82,30 @@ class FSMExecutor:
         if flows_dir:
             self.load_flows(flows_dir)
     
+    def _validate_flow(self, flow: Dict, source: str = "unknown"):
+        """Validate flow JSON has required structure."""
+        required_keys = {"name", "initial_state", "states", "templates"}
+        missing = required_keys - set(flow.keys())
+        if missing:
+            raise ValueError(f"Flow from {source} missing required keys: {missing}")
+        if flow["initial_state"] not in flow["states"]:
+            raise ValueError(
+                f"Flow '{flow['name']}' initial_state '{flow['initial_state']}' "
+                f"not found in states"
+            )
+
     def load_flows(self, directory: str):
         """Load flow definitions from directory."""
         import os
         from pathlib import Path
-        
+
         path = Path(directory)
         for flow_file in path.glob("*.json"):
             with open(flow_file) as f:
                 flow = json.load(f)
+                self._validate_flow(flow, source=str(flow_file))
                 self.flows[flow["name"]] = flow
+                logger.info("Loaded flow '%s' from %s", flow["name"], flow_file)
     
     def register_action(self, name: str, handler: Callable):
         """Register an action handler."""

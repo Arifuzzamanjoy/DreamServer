@@ -59,9 +59,9 @@ Having control over your AI deployment is vital for maintaining autonomy and ens
 Choosing between Dream Server and Cloud AI depends on your specific needs and priorities. Dream Server offers superior privacy and control at a competitive TCO, making it ideal for organizations prioritizing data security and flexibility. On the other hand, Cloud AI provides scalability and ease of use, appealing to those requiring quick access to AI resources without significant upfront investment.
 
 ## References
-- Cluster Benchmarks Report
-- Privacy Whitepaper
-- Cost Analysis Document
+- [Cluster Benchmarks (Feb 2026)](../research/hardware/CLUSTER-BENCHMARKS-2026-02-10.md)
+- [Privacy-First AI: Local Deployment Guide](./privacy-first-ai-local.md)
+- [Hidden Costs of Cloud AI](./hidden-costs-cloud-ai.md)
 
 ---
-*For more information, visit [Dream Server](https://dreamserver.com) or [Cloud AI](https://cloudai.com).*
+*Learn more at [Light Heart Labs on GitHub](https://github.com/Light-Heart-Labs/DreamServer).*

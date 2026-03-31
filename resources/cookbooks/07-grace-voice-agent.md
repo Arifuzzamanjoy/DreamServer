@@ -600,4 +600,4 @@ async def health():
 
 ---
 
-*Part of the Android-Labs Cookbook — M2, M4*
+*Part of the DreamServer Cookbook — M2, M4*

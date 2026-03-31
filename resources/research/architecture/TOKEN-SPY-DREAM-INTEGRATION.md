@@ -23,7 +23,7 @@ Add to `docker-compose.yml` under a new `token-spy` profile:
   # Token Spy — LLM Usage Monitoring
   # ============================================
   token-spy:
-    image: ghcr.io/lightheartdevs/token-spy:v1.0.0  # Pinned stable release
+    image: ghcr.io/light-heart-labs/token-spy:v1.0.0  # Pinned stable release
     container_name: dream-token-spy
     restart: unless-stopped
     user: "1000:1000"
@@ -75,7 +75,7 @@ For users monitoring both local vLLM and external APIs:
 ```yaml
   # External API Monitor (e.g., Anthropic backup)
   token-spy-external:
-    image: ghcr.io/lightheartdevs/token-spy:v1.0.0
+    image: ghcr.io/light-heart-labs/token-spy:v1.0.0
     container_name: dream-token-spy-external
     restart: unless-stopped
     environment:

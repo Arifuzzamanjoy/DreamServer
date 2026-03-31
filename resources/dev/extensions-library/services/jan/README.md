@@ -1,5 +1,7 @@
 # Jan
 
+> **Status: Disabled** — Jan's Docker image (`jan-server`) is not yet stable enough for production inclusion. The compose file is preserved as `compose.yaml.disabled` for future re-evaluation. Jan overlaps with Open WebUI (already in the core stack) for chat functionality. Re-enable when Jan Server reaches v1.0+ with reliable API stability.
+
 A ChatGPT alternative that runs 100% offline on your computer.
 
 ## Features

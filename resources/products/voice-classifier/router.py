@@ -5,6 +5,7 @@ Routes user requests between FSM (deterministic) and LLM (fallback).
 The decision engine for the M4 deterministic layer.
 """
 
+import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -12,6 +13,8 @@ from typing import Optional, Dict, Any
 
 from .classifier import IntentClassifier, ClassificationResult
 from .fsm import FSMExecutor, FlowResponse, FlowStatus
+
+logger = logging.getLogger(__name__)
 
 
 class RoutingTarget(Enum):
@@ -194,6 +197,10 @@ class DeterministicRouter:
             
         except Exception as e:
             # FSM error — fall back to LLM
+            logger.warning(
+                "FSM error for session %s, intent '%s': %s — falling back to LLM",
+                session_id, intent, e
+            )
             return RoutingDecision(
                 target=RoutingTarget.FALLBACK,
                 intent=intent,

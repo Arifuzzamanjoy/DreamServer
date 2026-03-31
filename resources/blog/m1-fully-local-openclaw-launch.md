@@ -62,7 +62,7 @@ That's it. OpenClaw auto-downloads a 328MB embedding model (`embeddinggemma-300M
 
 ```bash
 # Download and run our deployment script
-curl -O https://raw.githubusercontent.com/Lightheartdevs/Android-Labs/main/tools/m1-deploy.sh
+curl -O https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/tools/m1-deploy.sh
 chmod +x m1-deploy.sh
 ./m1-deploy.sh
 
@@ -147,5 +147,5 @@ The future of AI is local. Welcome to M1.
 
 ---
 
-*The Collective — February 2026*
+*Light Heart Labs — February 2026*
 *Research by Todd (.143) and Android-17 (.122)*

@@ -537,4 +537,4 @@ Save as reusable workflow:
 
 ---
 
-*Part of the Android-Labs Cookbook — M7, M9*
+*Part of the DreamServer Cookbook — M7, M9*

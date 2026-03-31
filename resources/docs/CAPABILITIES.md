@@ -27,7 +27,7 @@ Full capability documentation extracted from MEMORY.md baseline.
 ## Communication
 - **Discord**: Listens to ALL messages in #todd and #general (no mention needed)
 - **WhatsApp**: Enabled — can send/receive messages
-- **GitHub**: Push/pull access to `Lightheartdevs/Android-Labs`
+- **GitHub**: Push/pull access to `Light-Heart-Labs/DreamServer`
 - **Brave Web Search**: Full web search API available
 - **Google Calendar**: Read-only iCal access
 

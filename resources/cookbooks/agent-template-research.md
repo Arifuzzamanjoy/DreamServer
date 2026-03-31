@@ -493,4 +493,4 @@ cron:
 
 ---
 
-*Part of the Android-Labs agent cookbook — building local AI agents that work.*
+*Part of the DreamServer cookbook — building local AI agents that work.*

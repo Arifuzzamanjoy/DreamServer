@@ -364,4 +364,4 @@ async def cluster_status():
 
 ---
 
-*Recipe by The Collective — based on Michael's production dual RTX PRO 6000 Blackwell cluster*
+*Built by Light Heart Labs — based on our production dual RTX PRO 6000 Blackwell cluster*

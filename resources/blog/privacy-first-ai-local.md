@@ -92,7 +92,7 @@ The overhead is negligible compared to API round-trip times (200-500ms).
 ```bash
 docker run -d -p 5000:5000 \
   -e LOCAL_LLM_URL=http://your-llm:8000 \
-  ghcr.io/lightheartdevs/privacy-shield:latest
+  ghcr.io/light-heart-labs/privacy-shield:latest
 ```
 
 ### Point Your Client at the Proxy
@@ -198,6 +198,6 @@ Start now. Build the infrastructure. Be ready.
 
 ---
 
-*Built by Android Labs — proving local-first AI works.*
+*Built by Light Heart Labs — proving local-first AI works.*
 
-*Privacy Shield: [GitHub](https://github.com/Lightheartdevs/Android-Labs/tree/main/products/privacy-shield) | [Docker](https://ghcr.io/lightheartdevs/privacy-shield)*
+*Privacy Shield: [GitHub](https://github.com/Light-Heart-Labs/DreamServer/tree/main/resources/products/privacy-shield) | [Docker](https://ghcr.io/light-heart-labs/privacy-shield)*

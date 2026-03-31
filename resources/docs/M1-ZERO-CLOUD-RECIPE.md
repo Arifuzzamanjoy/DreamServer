@@ -227,7 +227,7 @@ sudo iptables -F
 
 ```bash
 # Run M1 validation suite
-cd ~/.openclaw/workspace/Android-Labs/research
+cd ~/.openclaw/workspace/DreamServer/resources/research
 bash m1-validation.sh
 
 # Expected results:

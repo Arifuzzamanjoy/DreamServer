@@ -1,6 +1,6 @@
 # Local AI Cookbook
 
-*Practical recipes for local AI setups — Michael's consulting toolkit*
+*Practical recipes for deploying local AI on consumer hardware.*
 
 ---
 
@@ -28,12 +28,12 @@ Copy-paste recipes for common local AI configurations. Each recipe includes:
 
 ## Phase 2: Advanced Guides
 
-| # | Guide | Description | Owner | Status |
-|---|-------|-------------|-------|--------|
-| 05 | [Multi-GPU Cluster](05-multi-gpu-cluster.md) | Load balancing, TP/PP, monitoring | 17 | ✅ Complete |
-| 06 | [Swarm Patterns](06-swarm-patterns.md) | Sub-agent orchestration | 17 | ✅ Complete |
-| 07 | [Grace Voice Agent](07-grace-voice-agent.md) | Full voice agent with FSM | Todd | ✅ Complete |
-| 08 | [n8n + Local LLM](08-n8n-local-llm.md) | Workflow automation with local AI | Todd | ✅ Complete |
+| # | Guide | Description | Status |
+|---|-------|-------------|--------|
+| 05 | [Multi-GPU Cluster](05-multi-gpu-cluster.md) | Load balancing, TP/PP, monitoring | ✅ Complete |
+| 06 | [Swarm Patterns](06-swarm-patterns.md) | Sub-agent orchestration | ✅ Complete |
+| 07 | [Grace Voice Agent](07-grace-voice-agent.md) | Full voice agent with FSM | ✅ Complete |
+| 08 | [n8n + Local LLM](08-n8n-local-llm.md) | Workflow automation with local AI | ✅ Complete |
 
 ---
 
@@ -68,10 +68,6 @@ Copy-paste recipes for common local AI configurations. Each recipe includes:
 
 ## Contributing
 
-Built by The Collective (Android-17, Todd, Android-18) for Michael's consulting business.
+Built by the Light Heart Labs team while developing DreamServer.
 
 Found an issue or have an improvement? Update the recipe directly and test before committing.
-
----
-
-*Part of the Android-Labs collective — advancing local AI for everyone.*

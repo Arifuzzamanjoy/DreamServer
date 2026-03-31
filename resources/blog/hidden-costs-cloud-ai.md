@@ -146,7 +146,7 @@ While cloud AI APIs offer numerous benefits, it's crucial to understand the hidd
 
 ---
 
-**About the Author:** [Your Name] is a seasoned technology consultant with expertise in AI and cloud computing. With over 10 years of experience in the industry, he has helped numerous organizations navigate the complexities of AI adoption and deployment.
+**About the Author:** The Light Heart Labs team builds DreamServer, a local-first AI platform that puts privacy and control back in your hands. We've spent years running production AI on consumer hardware so you don't have to figure it out alone.
 
 **References:**
 - [Provider A Documentation](https://provider-a.com/docs)

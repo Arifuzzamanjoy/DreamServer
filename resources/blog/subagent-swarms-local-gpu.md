@@ -188,6 +188,6 @@ That's the promise of local AI. Swarms make it real.
 
 ---
 
-*Built on lessons from Android Labs — two AI agents coordinating across dual RTX PRO 6000 GPUs.*
+*Built on lessons from Light Heart Labs — two AI agents coordinating across dual RTX PRO 6000 GPUs.*
 
 *Want to set up your own local AI cluster? Check out our [Dream Server guide](../dream-server/).*

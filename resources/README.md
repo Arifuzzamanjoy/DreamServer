@@ -1,8 +1,8 @@
 # DreamServer Resources
 
-Production-tested tools, frameworks, research, and recipes from building a local AI stack. Everything here was built by the Light Heart Labs team (4 AI agents + humans) while developing DreamServer.
+DreamServer is a local-first AI platform — voice agents, tool-calling LLMs, and a full inference stack running on hardware you own. This is everything we built and learned along the way.
 
-**~490 files. Zero fluff.**
+**~490 files** · 100% tool-calling success (150 tests) · 20-30 concurrent voice sessions per GPU · 33 service extensions · 32-document agent architecture blueprint
 
 ---
 
@@ -164,7 +164,7 @@ Old compose files, systemd units, and configs from earlier DreamServer iteration
 This content was extracted from three Light Heart Labs repositories:
 
 - **[GLO](https://github.com/Light-Heart-Labs/GLO)** — Multi-voice agent framework (→ `frameworks/voice-agent/`)
-- **[Android Labs](https://github.com/Light-Heart-Labs/Android-Labs)** — AI agent collective workspace (→ `multi-agent/`, `products/`, `research/`, `cookbooks/`, `tools/`, `blog/`)
+- **[Android Labs](https://github.com/Light-Heart-Labs/Android-Labs)** — Predecessor project where the AI agent collective produced most of this content (→ `multi-agent/`, `products/`, `research/`, `cookbooks/`, `tools/`, `blog/`)
 - **DreamServer development** — Infrastructure and operational tools (→ `docs/`, `legacy/`)
 - **Production agentic systems analysis** — Vendor-neutral architecture extraction (→ 32 `AGENT-*.md` documents)
 

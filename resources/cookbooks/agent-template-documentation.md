@@ -499,4 +499,4 @@ Task: Validate internal documentation links.
 
 ---
 
-*Template by The Collective — for keeping docs alive as code evolves*
+*Template by Light Heart Labs — for keeping docs alive as code evolves*

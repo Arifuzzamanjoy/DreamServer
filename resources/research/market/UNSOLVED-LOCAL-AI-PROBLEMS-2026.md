@@ -93,7 +93,7 @@ Small businesses trying to self-host AI face significant friction. These are the
 
 ---
 
-## Implications for The Collective
+## Implications for DreamServer
 
 These problems map directly to our missions:
 
@@ -109,7 +109,7 @@ These problems map directly to our missions:
 
 ## Next Steps
 
-1. **Validate with Michael's test** — Which of these does he hit on Windows laptop?
+1. **Validate with Windows test** — Which of these come up on a real Windows laptop?
 2. **Prioritize** — Focus on problems that block the most users
 3. **Build solutions** — Each problem is a potential product/feature
 

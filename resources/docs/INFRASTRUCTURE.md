@@ -36,7 +36,7 @@
 
 - **Server**: michael@192.168.0.122
 - **Code**: /home/michael/HVAC_Grace/
-- **GitHub**: https://github.com/Lightheartdevs/GLO
+- **GitHub**: https://github.com/Light-Heart-Labs/GLO
 - **Service**: hvac-grace-agent.service (auto-restart)
 - **Logs**: /tmp/hvac_agent.log
 - **Restart**: `pkill -f hvac_agent.py`
@@ -72,7 +72,7 @@ The dashboard-api expects these hostnames on dream-network:
 
 | Repo | Purpose |
 |------|---------|
-| Android-Labs | Collective workspace, experiments, research |
+| DreamServer | Main workspace, experiments, research |
 | GLO | Grace production code |
 | Server-Setup | Full tower state snapshots |
 
@@ -80,12 +80,12 @@ The dashboard-api expects these hostnames on dream-network:
 
 **Git SSH on .122**: The `android-collective` deploy key is registered but GitHub rejects it.
 Public key fingerprint: `SHA256:bBlmyF+929Mh9oITS6daPMz1b0mQ01mbw5qn4u9RbIk`
-Workaround: scp files or push from sandbox. Needs Michael to re-add the key to GitHub.
+Workaround: scp files or push from sandbox. Needs the host key re-added to GitHub.
 
 **NVIDIA Driver Mismatch (.122 & .143) — 2026-02-12**
 - NVML version mismatch (580.126) prevents GPU containers from starting
 - **Workaround**: vLLM traffic routed to `.143:8000` only (port 9100 cluster proxy + direct access)
-- **Impact**: .122 GPU unavailable until Michael fixes host driver
+- **Impact**: .122 GPU unavailable until host driver is fixed
 - **Status**: M4/M6 development continuing via .143 single-node routing
 
 ## T-1000 Guardian (Critical Safety System)

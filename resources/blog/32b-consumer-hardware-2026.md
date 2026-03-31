@@ -249,6 +249,6 @@ Start with 32B now. You'll be ready for whatever comes next.
 
 ---
 
-*Built on lessons from Android Labs — running production AI on local hardware.*
+*Built on lessons from Light Heart Labs — running production AI on local hardware.*
 
 *Want the full stack? Check out [Dream Server](../dream-server/) for a turnkey local AI package.*

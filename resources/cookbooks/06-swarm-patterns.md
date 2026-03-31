@@ -310,4 +310,4 @@ for (const scenario of scenarios) {
 
 ---
 
-*Pattern guide by The Collective — battle-tested on local Qwen 32B*
+*Pattern guide by Light Heart Labs — battle-tested on local Qwen 32B*

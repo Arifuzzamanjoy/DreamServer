@@ -470,4 +470,4 @@ openclaw agent run code-specialist --task "review-staged-changes"
 
 ---
 
-*Part of the Android-Labs agent cookbook — building local AI agents that work.*
+*Part of the DreamServer cookbook — building local AI agents that work.*

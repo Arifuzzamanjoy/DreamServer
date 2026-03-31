@@ -27,7 +27,7 @@
 **NEVER** touch Grace without:
 1. Full research team scoping
 2. Vetted project document
-3. Michael's explicit approval
+3. Founder's explicit approval
 
 No matter how small the change seems.
 

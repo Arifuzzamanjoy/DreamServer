@@ -172,22 +172,35 @@ This benchmark compares **local Qwen 32B** (running on RTX PRO 6000) against lea
 
 ---
 
-## Quality Comparison (Pending)
+## Quality Comparison
 
 ### Tool-Calling Accuracy
-- **Local Qwen 32B:** 100% (150/150 tests)
-- **Claude:** TBD (need cloud test)
-- **GPT-4o:** TBD (need cloud test)
+- **Local Qwen 32B:** 100% (150/150 tests) — M1 validation suite
+- **Claude Sonnet:** Expected ~98-99% (Anthropic reports near-perfect tool use on structured schemas)
+- **GPT-4o:** Expected ~95-98% (known issues with parallel tool calls and complex schemas)
+
+**Test Plan:** Run identical M1 validation suite (150 tests) against Claude and GPT-4o APIs. Measure success rate, latency, and failure modes. Budget: ~$5-10 in API credits.
 
 ### Reasoning Capabilities
-- **Local Qwen 32B:** Strong on code, math, structured output
-- **Claude:** TBD
-- **GPT-4o:** TBD
+
+| Task | Local Qwen 32B | Claude Sonnet (est.) | GPT-4o (est.) |
+|------|---------------|---------------------|---------------|
+| Code generation | Strong (Coder variant) | Excellent | Excellent |
+| Math/logic | Good (32B limit) | Excellent | Excellent |
+| Structured output | Excellent (hermes parser) | Excellent | Good |
+| Multi-step reasoning | Adequate for most tasks | Superior | Superior |
+| Long-context synthesis | Limited (32K window) | Superior (200K) | Good (128K) |
+
+**Honest Assessment:** Cloud models outperform local 32B on complex multi-step reasoning and long-context tasks. Local Qwen excels at structured tool-calling workflows, code generation, and any task within its 32K context window. For DreamServer's target use cases (voice agents, tool calling, code assist), local quality is sufficient.
+
+**Test Plan:** Run 50-question reasoning benchmark (mix of code, math, logic, summarization) against all three. Score on correctness and usefulness. Compare at matched context lengths (32K).
 
 ### Context Window
-- **Local Qwen 32B:** 32K tokens
-- **Claude:** 200K tokens
-- **GPT-4o:** 128K tokens
+- **Local Qwen 32B:** 32K tokens — sufficient for single-document tasks, multi-turn conversations, and tool-calling workflows
+- **Claude:** 200K tokens — needed for large codebase analysis, long document processing
+- **GPT-4o:** 128K tokens — middle ground
+
+**Guidance:** Use local for tasks under 32K context. Route to cloud APIs (via DreamServer's hybrid mode) when context exceeds local capacity.
 
 ---
 
@@ -225,10 +238,11 @@ This benchmark compares **local Qwen 32B** (running on RTX PRO 6000) against lea
 
 1. ✅ **Cloud pricing research** — Complete (all major providers documented)
 2. ⏳ **Run cloud latency tests** — Optional: measure actual Claude/GPT-4o TTFT for comparison
-3. ⏳ **Quality benchmarks** — Optional: side-by-side reasoning/task evaluations
+3. ⏳ **Quality benchmarks** — Test plan defined above; run M1 suite + 50-question reasoning benchmark (~$10 API budget)
 4. ✅ **Publish final report** — Marketing-ready benchmark summary complete
+5. ✅ **Quality comparison section** — Estimates and honest assessment added; awaiting live test data
 
-**Status:** M9 core deliverable complete. Document provides actionable comparison for Dream Server sales.
+**Status:** M9 core deliverable complete. Quality comparison section has estimates and test plans; live cloud test data will strengthen the local-vs-cloud ROI argument.
 
 ---
 

@@ -52,7 +52,7 @@ Hardware recommendations for running local AI models in 2026. Aimed at the "Drea
 
 ## Enterprise/Pro GPUs (For Reference)
 
-### RTX 6000 Blackwell Pro (Michael's Setup)
+### RTX 6000 Blackwell Pro (Reference Build)
 - **VRAM:** 96GB GDDR7
 - **Use case:** 70B+ models unquantized
 - **Price:** ~$6,500
@@ -138,7 +138,7 @@ Hardware recommendations for running local AI models in 2026. Aimed at the "Drea
 - **Runs:** 70B full, matches H100 performance
 
 ### Tier 4: Enthusiast ($15,000+)
-- RTX 6000 Blackwell Pro (96GB) or RTX PRO 6000 (Michael's setup)
+- RTX 6000 Blackwell Pro (96GB) or RTX PRO 6000 (reference build)
 - 256GB RAM
 - Large NVMe array
 - Dual PSU recommended

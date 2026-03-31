@@ -168,7 +168,7 @@ semver_compare() {
 **Rationale:** GitHub releases are already used for distribution, require no additional infrastructure, and support authenticated requests for higher rate limits.
 
 ```bash
-GITHUB_REPO="Lightheartdevs/Android-Labs"
+GITHUB_REPO="Light-Heart-Labs/DreamServer"
 GITHUB_API="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
 
 check_github_update() {
@@ -1254,7 +1254,7 @@ INSTALL_DIR="${SCRIPT_DIR}/.."
 cd "$INSTALL_DIR"
 
 # Configuration
-GITHUB_REPO="${GITHUB_REPO:-Lightheartdevs/Android-Labs}"
+GITHUB_REPO="${GITHUB_REPO:-Light-Heart-Labs/DreamServer}"
 BACKUP_DIR="${BACKUP_DIR:-.backups}"
 MAX_BACKUPS="${MAX_BACKUPS:-10}"
 UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"

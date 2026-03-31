@@ -1,6 +1,6 @@
 # Privacy Shield 🛡️
 
-[![Docker](https://img.shields.io/badge/docker-ghcr.io%2Flightheartdevs%2Fprivacy--shield-blue)](https://ghcr.io/lightheartdevs/privacy-shield)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io%2Flight--heart--labs%2Fprivacy--shield-blue)](https://ghcr.io/light-heart-labs/privacy-shield)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 **OpenAI-compatible API proxy with automatic PII filtering.**
@@ -34,7 +34,7 @@ Your App → Privacy Shield → Local vLLM
 ```bash
 docker run -d -p 5000:5000 \
   -e LOCAL_LLM_URL=http://your-llm:8000 \
-  ghcr.io/lightheartdevs/privacy-shield:latest
+  ghcr.io/light-heart-labs/privacy-shield:latest
 ```
 
 ### Build locally
@@ -192,4 +192,4 @@ Route support chat through an LLM for suggestions while ensuring customer emails
 
 **M3: API Privacy Shield** — Programs that let you use AI APIs while shielding sensitive data, recombining results locally.
 
-Part of [Android-Labs](https://github.com/Lightheartdevs/Android-Labs) — AI infrastructure for the self-hosting community.
+Part of [DreamServer](https://github.com/Light-Heart-Labs/DreamServer) — AI infrastructure for the self-hosting community.

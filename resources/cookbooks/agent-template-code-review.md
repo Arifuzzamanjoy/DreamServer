@@ -182,7 +182,7 @@ Optional: broader suggestions for improvement.
 
 **Agent:** 
 ```
-Fetching PR #234 from Lightheartdevs/GLO...
+Fetching PR #234 from Light-Heart-Labs/GLO...
 Analyzing 3 files changed (+127, -43 lines)
 
 ## Summary

@@ -2,7 +2,7 @@
 
 **Servers:** 192.168.0.122 (lightheartworker), 192.168.0.143 (Tower2)  
 **Date:** 2026-02-09  
-**Built by:** Claude Code (remote session via Michael's desktop)
+**Built by:** Claude Code (remote session)
 
 ---
 

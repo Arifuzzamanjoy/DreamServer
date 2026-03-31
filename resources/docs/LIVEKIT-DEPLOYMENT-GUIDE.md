@@ -44,8 +44,8 @@ If you don't already have our cluster running, use Dream Server:
 
 ```bash
 # Clone and run
-git clone https://github.com/Lightheartdevs/Android-Labs
-cd Android-Labs/dream-server
+git clone https://github.com/Light-Heart-Labs/DreamServer
+cd DreamServer/dream-server
 ./install.sh
 
 # Or manual Docker:

@@ -1,6 +1,6 @@
 # Windows-Specific Challenges for Local AI Deployment (2026)
 
-*Research for Michael's Windows laptop test (mobile RTX 5090, 24GB VRAM)*
+*Windows laptop validation — mobile RTX 5090, 24GB VRAM*
 *Mission: M5 (Dream Server), M6 (Min Hardware)*
 
 ---
@@ -34,7 +34,7 @@ nvidia-smi                    # Should show Windows GPU
 docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
 ```
 
-### Michael's 5090 Notes
+### RTX 5090 Test Notes
 - Mobile 5090 (24GB) is new hardware — may need latest driver
 - Should run Qwen 32B-AWQ comfortably with 32K context
 - Watch for power throttling on laptop (plugged in vs battery)
@@ -192,4 +192,4 @@ python -c "import torch; print(torch.cuda.get_device_capability())"
 
 ---
 
-*Update this doc based on Michael's actual test results.*
+*Update this doc based on actual test results.*
