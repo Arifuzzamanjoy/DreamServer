@@ -23,7 +23,7 @@ features:
     icon: Code
     category: development
     requirements:
-      services_all: [opencode]
+      services: [opencode]
       vram_gb: 8
     enabled_services_all: [opencode]
     setup_time: Ready
