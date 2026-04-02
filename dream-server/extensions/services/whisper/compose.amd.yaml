@@ -1,0 +1,23 @@
+# Whisper AMD ROCm GPU Overlay
+# Enables GPU-accelerated speech-to-text on AMD GPUs
+# Auto-discovered by resolve-compose-stack.sh when GPU_BACKEND=amd
+
+services:
+  whisper:
+    image: ghcr.io/speaches-ai/speaches:0.9.0-rc.3-rocm
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/kfd:/dev/kfd
+    group_add:
+      - "${VIDEO_GID:-44}"
+      - "${RENDER_GID:-992}"
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=11.5.1
+    deploy:
+      resources:
+        reservations:
+          cpus: '2.0'
+          memory: 4G
+        limits:
+          cpus: '4.0'
+          memory: 8G
