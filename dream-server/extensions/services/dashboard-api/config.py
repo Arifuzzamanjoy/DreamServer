@@ -203,3 +203,64 @@ SIDEBAR_ICONS = {
     "token-spy": "Terminal",
     "langfuse": "BarChart2",
 }
+
+# --- Extensions Portal ---
+
+CATALOG_PATH = Path(os.environ.get(
+    "DREAM_EXTENSIONS_CATALOG",
+    str(Path(INSTALL_DIR) / "config" / "extensions-catalog.json")
+))
+
+EXTENSIONS_LIBRARY_DIR = Path(os.environ.get(
+    "DREAM_EXTENSIONS_LIBRARY_DIR",
+    str(Path(DATA_DIR) / "extensions-library")
+))
+
+USER_EXTENSIONS_DIR = Path(os.environ.get(
+    "DREAM_USER_EXTENSIONS_DIR",
+    str(Path(DATA_DIR) / "user-extensions")
+))
+
+def _load_core_service_ids() -> frozenset:
+    core_ids_path = Path(INSTALL_DIR) / "config" / "core-service-ids.json"
+    if core_ids_path.exists():
+        try:
+            return frozenset(json.loads(core_ids_path.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            pass
+    # Fallback to hardcoded list
+    return frozenset({
+        "dashboard-api", "dashboard", "llama-server", "open-webui",
+        "litellm", "langfuse", "n8n", "openclaw", "opencode",
+        "perplexica", "searxng", "qdrant", "tts", "whisper",
+        "embeddings", "token-spy", "comfyui", "ape", "privacy-shield",
+    })
+
+
+CORE_SERVICE_IDS = _load_core_service_ids()
+
+
+def load_extension_catalog() -> list[dict]:
+    """Load the static extensions catalog JSON. Returns empty list on failure."""
+    if not CATALOG_PATH.exists():
+        logger.info("Extensions catalog not found at %s", CATALOG_PATH)
+        return []
+    try:
+        data = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+        return data.get("extensions", [])
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Failed to load extensions catalog: %s", e)
+        return []
+
+
+EXTENSION_CATALOG = load_extension_catalog()
+
+# --- Host Agent ---
+
+AGENT_HOST = os.environ.get("DREAM_AGENT_HOST", "host.docker.internal")
+AGENT_PORT = int(os.environ.get("DREAM_AGENT_PORT", "7710"))
+AGENT_URL = f"http://{AGENT_HOST}:{AGENT_PORT}"
+DASHBOARD_API_KEY = os.environ.get("DASHBOARD_API_KEY", "")
+# Prefer dedicated DREAM_AGENT_KEY; fall back to DASHBOARD_API_KEY for
+# existing installs that haven't generated a separate key yet.
+DREAM_AGENT_KEY = os.environ.get("DREAM_AGENT_KEY", "") or DASHBOARD_API_KEY
