@@ -1269,6 +1269,27 @@ cmd_disable() {
     local cat="${SERVICE_CATEGORIES[$service_id]:-optional}"
     [[ "$cat" == "core" ]] && error "Cannot disable core service: $service_id"
 
+    # Check for reverse dependents
+    local dependents=()
+    for sid in "${SERVICE_IDS[@]}"; do
+        [[ "$sid" == "$service_id" ]] && continue
+        local dep_cf="$INSTALL_DIR/extensions/services/$sid/compose.yaml"
+        [[ ! -f "$dep_cf" ]] && continue
+        local deps="${SERVICE_DEPENDS[$sid]:-}"
+        for dep in $deps; do
+            if [[ "$dep" == "$service_id" ]]; then
+                dependents+=("$sid")
+                break
+            fi
+        done
+    done
+    if [[ ${#dependents[@]} -gt 0 ]]; then
+        warn "These enabled extensions depend on $service_id: ${dependents[*]}"
+        read -p "  Continue anyway? [y/N] " -n 1 -r
+        echo
+        [[ ! $REPLY =~ ^[Yy]$ ]] && { log "Cancelled."; return 1; }
+    fi
+
     # Stop if running, then rename
     local flags_str
     flags_str=$(get_compose_flags)
