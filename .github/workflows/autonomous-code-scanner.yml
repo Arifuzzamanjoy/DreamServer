@@ -348,9 +348,12 @@ jobs:
     steps:
       - name: Calculate total cost
         id: calculate
+        env:
+          FORMATTING_COST: ${{ needs.scan-formatting.outputs.cost }}
+          SECURITY_COST: ${{ needs.scan-security.outputs.cost }}
         run: |
-          FORMATTING=${{ needs.scan-formatting.outputs.cost }}
-          SECURITY=${{ needs.scan-security.outputs.cost }}
+          FORMATTING="${FORMATTING_COST:-0}"
+          SECURITY="${SECURITY_COST:-0}"
           TOTAL=$(echo "$FORMATTING + $SECURITY" | bc)
           REMAINING=$(echo "100 - $TOTAL" | bc)
 
@@ -372,9 +375,12 @@ jobs:
 
       - name: Determine budget gates
         id: gates
+        env:
+          BUDGET_REMAINING: ${{ steps.calculate.outputs.remaining }}
+          SKIP_EXPENSIVE_INPUT: ${{ github.event.inputs.skip_expensive || 'false' }}
         run: |
-          REMAINING=${{ steps.calculate.outputs.remaining }}
-          SKIP_EXPENSIVE=${{ github.event.inputs.skip_expensive || 'false' }}
+          REMAINING="${BUDGET_REMAINING:-0}"
+          SKIP_EXPENSIVE="$SKIP_EXPENSIVE_INPUT"
 
           # P2 (Type Hints) runs if budget >$40 and not manually skipped
           if (( $(echo "$REMAINING > 40" | bc -l) )) && [ "$SKIP_EXPENSIVE" != "true" ]; then
@@ -813,10 +819,12 @@ jobs:
           needs.scan-security.outputs.has_findings == 'true' ||
           (needs.scan-type-hints.result == 'success' && needs.scan-type-hints.outputs.has_changes == 'true') ||
           (needs.scan-documentation.result == 'success' && needs.scan-documentation.outputs.has_changes == 'true')
+        env:
+          HAS_FORMATTING_CHANGES: ${{ needs.scan-formatting.outputs.has_changes }}
         run: |
           echo "## Verifying Changes" >> $GITHUB_STEP_SUMMARY
 
-          if [ "${{ needs.scan-formatting.outputs.has_changes }}" == "true" ]; then
+          if [ "$HAS_FORMATTING_CHANGES" == "true" ]; then
             if git diff --quiet; then
               echo "::error::Expected formatting changes but working tree is clean"
               echo "No changes detected after patch apply" >> $GITHUB_STEP_SUMMARY
@@ -918,7 +926,8 @@ jobs:
         if: steps.pr-formatting.outputs.pull-request-number
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh pr edit ${{ steps.pr-formatting.outputs.pull-request-number }} --add-label "auto-formatting,ai-generated,needs-human-review"
+          PR_NUMBER: ${{ steps.pr-formatting.outputs.pull-request-number }}
+        run: gh pr edit "$PR_NUMBER" --add-label "auto-formatting,ai-generated,needs-human-review"
 
       - name: Create PR - Security
         id: pr-security
@@ -963,7 +972,8 @@ jobs:
         if: steps.pr-security.outputs.pull-request-number
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh pr edit ${{ steps.pr-security.outputs.pull-request-number }} --add-label "auto-security,needs-human-review"
+          PR_NUMBER: ${{ steps.pr-security.outputs.pull-request-number }}
+        run: gh pr edit "$PR_NUMBER" --add-label "auto-security,needs-human-review"
 
       - name: Reset checkout before type hints
         if: |
@@ -1043,7 +1053,8 @@ jobs:
         if: steps.pr-type-hints.outputs.pull-request-number
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh pr edit ${{ steps.pr-type-hints.outputs.pull-request-number }} --add-label "auto-type-hints,ai-generated,needs-human-review"
+          PR_NUMBER: ${{ steps.pr-type-hints.outputs.pull-request-number }}
+        run: gh pr edit "$PR_NUMBER" --add-label "auto-type-hints,ai-generated,needs-human-review"
 
       - name: Reset checkout before documentation
         if: |
@@ -1124,16 +1135,28 @@ jobs:
         if: steps.pr-documentation.outputs.pull-request-number
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh pr edit ${{ steps.pr-documentation.outputs.pull-request-number }} --add-label "auto-documentation,ai-generated,needs-human-review"
+          PR_NUMBER: ${{ steps.pr-documentation.outputs.pull-request-number }}
+        run: gh pr edit "$PR_NUMBER" --add-label "auto-documentation,ai-generated,needs-human-review"
 
       - name: Generate final summary
         id: final-summary
         if: always()
+        env:
+          RUN_ID: ${{ github.run_id }}
+          HAS_FORMATTING: ${{ needs.scan-formatting.outputs.has_changes }}
+          HAS_SECURITY: ${{ needs.scan-security.outputs.has_findings }}
+          HAS_TYPE_HINTS: ${{ needs.scan-type-hints.outputs.has_changes }}
+          HAS_DOCS: ${{ needs.scan-documentation.outputs.has_changes }}
+          FORMATTING_COST: ${{ needs.scan-formatting.outputs.cost }}
+          SECURITY_COST: ${{ needs.scan-security.outputs.cost }}
+          TYPE_HINTS_COST: ${{ needs.scan-type-hints.outputs.cost }}
+          DOCS_COST: ${{ needs.scan-documentation.outputs.cost }}
+          IS_DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           echo "# Autonomous Code Scanner Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Scan date**: $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
-          echo "**Run ID**: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Run ID**: $RUN_ID" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "## PRs Created" >> $GITHUB_STEP_SUMMARY
@@ -1141,23 +1164,23 @@ jobs:
 
           PR_COUNT=0
 
-          if [ "${{ needs.scan-formatting.outputs.has_changes }}" = "true" ]; then
-            echo "- **Formatting**: Created (Branch: scanner/formatting-${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          if [ "$HAS_FORMATTING" = "true" ]; then
+            echo "- **Formatting**: Created (Branch: scanner/formatting-$RUN_ID)" >> $GITHUB_STEP_SUMMARY
             PR_COUNT=$((PR_COUNT + 1))
           fi
 
-          if [ "${{ needs.scan-security.outputs.has_findings }}" = "true" ]; then
-            echo "- **Security**: Created - NEEDS REVIEW (Branch: scanner/security-${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          if [ "$HAS_SECURITY" = "true" ]; then
+            echo "- **Security**: Created - NEEDS REVIEW (Branch: scanner/security-$RUN_ID)" >> $GITHUB_STEP_SUMMARY
             PR_COUNT=$((PR_COUNT + 1))
           fi
 
-          if [ "${{ needs.scan-type-hints.outputs.has_changes }}" = "true" ]; then
-            echo "- **Type Hints**: Created (Branch: scanner/type-hints-${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          if [ "$HAS_TYPE_HINTS" = "true" ]; then
+            echo "- **Type Hints**: Created (Branch: scanner/type-hints-$RUN_ID)" >> $GITHUB_STEP_SUMMARY
             PR_COUNT=$((PR_COUNT + 1))
           fi
 
-          if [ "${{ needs.scan-documentation.outputs.has_changes }}" = "true" ]; then
-            echo "- **Documentation**: Created (Branch: scanner/documentation-${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          if [ "$HAS_DOCS" = "true" ]; then
+            echo "- **Documentation**: Created (Branch: scanner/documentation-$RUN_ID)" >> $GITHUB_STEP_SUMMARY
             PR_COUNT=$((PR_COUNT + 1))
           fi
 
@@ -1170,10 +1193,10 @@ jobs:
           echo "## Cost Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          FORMATTING=${{ needs.scan-formatting.outputs.cost }}
-          SECURITY=${{ needs.scan-security.outputs.cost }}
-          TYPES=${{ needs.scan-type-hints.outputs.cost || 0 }}
-          DOCS=${{ needs.scan-documentation.outputs.cost || 0 }}
+          FORMATTING="${FORMATTING_COST:-0}"
+          SECURITY="${SECURITY_COST:-0}"
+          TYPES="${TYPE_HINTS_COST:-0}"
+          DOCS="${DOCS_COST:-0}"
 
           TOTAL=$(echo "$FORMATTING + $SECURITY + $TYPES + $DOCS" | bc)
           REMAINING=$(echo "100 - $TOTAL" | bc)
@@ -1193,7 +1216,7 @@ jobs:
           echo "- **Remaining**: \$$REMAINING" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+          if [ "$IS_DRY_RUN" = "true" ]; then
             echo "**Dry run mode**: No PRs were created" >> $GITHUB_STEP_SUMMARY
           fi
 
