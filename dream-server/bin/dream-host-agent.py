@@ -297,9 +297,9 @@ def main():
         pid_path.write_text(str(os.getpid()), encoding="utf-8")
         atexit.register(lambda: pid_path.unlink(missing_ok=True))
 
-    server = ThreadedHTTPServer(("127.0.0.1", port), AgentHandler)
+    server = ThreadedHTTPServer(("0.0.0.0", port), AgentHandler)
     signal.signal(signal.SIGTERM, lambda *_: server.shutdown())
-    logger.info("Dream Host Agent v%s listening on 127.0.0.1:%d", VERSION, port)
+    logger.info("Dream Host Agent v%s listening on 0.0.0.0:%d", VERSION, port)
     logger.info("Install dir: %s | GPU: %s | Tier: %s", INSTALL_DIR, GPU_BACKEND, TIER)
     try:
         server.serve_forever()
