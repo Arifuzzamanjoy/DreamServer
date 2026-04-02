@@ -5,7 +5,10 @@ import {
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 
-const API_BASE = import.meta.env.VITE_API_URL || ''
+// Auth: nginx injects "Authorization: Bearer ${DASHBOARD_API_KEY}" via
+// proxy_set_header for all /api/ requests (see nginx.conf).  All fetches
+// use relative URLs so they route through the nginx proxy which adds the
+// header before forwarding to dashboard-api.  No explicit auth in JS.
 
 const fetchJson = async (url, ms = 8000) => {
   const c = new AbortController()
@@ -57,7 +60,7 @@ export default function Extensions() {
     try {
       setLoading(true)
       setError(null)
-      const res = await fetchJson(`${API_BASE}/api/extensions/catalog`)
+      const res = await fetchJson(`/api/extensions/catalog`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setCatalog(await res.json())
     } catch (err) {
@@ -73,8 +76,8 @@ export default function Extensions() {
     setConfirm(null)
     try {
       const url = action === 'uninstall'
-        ? `${API_BASE}/api/extensions/${serviceId}`
-        : `${API_BASE}/api/extensions/${serviceId}/${action}`
+        ? `/api/extensions/${serviceId}`
+        : `/api/extensions/${serviceId}/${action}`
       const res = await fetch(url, {
         method: action === 'uninstall' ? 'DELETE' : 'POST',
         signal: AbortSignal.timeout(15000),
@@ -591,7 +594,7 @@ function ConsoleModal({ ext, onClose }) {
 
   const fetchLogs = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/extensions/${ext.id}/logs`, {
+      const res = await fetch(`/api/extensions/${ext.id}/logs`, {
         method: 'POST',
         signal: AbortSignal.timeout(8000),
       })
