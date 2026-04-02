@@ -1,10 +1,7 @@
 """Tests for extensions portal endpoints."""
 
-import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
-
-import yaml
 
 from models import ServiceStatus
 
