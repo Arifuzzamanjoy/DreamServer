@@ -14,6 +14,7 @@
 #   .\dream.ps1 config edit         # Open .env in notepad
 #   .\dream.ps1 chat "message"      # Quick chat via API
 #   .\dream.ps1 update              # Pull latest images and restart
+#   .\dream.ps1 report              # Generate Windows diagnostics bundle
 #   .\dream.ps1 version             # Show version
 #   .\dream.ps1 help                # Show help
 #
@@ -38,6 +39,7 @@ $LibDir = Join-Path $ScriptDir "lib"
 . (Join-Path $LibDir "ui.ps1")
 . (Join-Path $LibDir "compose-diagnostics.ps1")
 . (Join-Path $LibDir "detection.ps1")
+. (Join-Path $LibDir "install-report.ps1")
 
 # ── Resolve install directory ──
 $InstallDir = $script:DS_INSTALL_DIR
@@ -618,6 +620,17 @@ function Invoke-Update {
     }
 }
 
+function Invoke-Report {
+    Test-Install
+    Push-Location $InstallDir
+    try {
+        $flags = Get-ComposeFlags
+        Write-DreamInstallReport -InstallDir $InstallDir -ComposeFlags $flags | Out-Null
+    } finally {
+        Pop-Location
+    }
+}
+
 function Show-Help {
     Write-Host ""
     Write-Host "  Dream Server CLI (Windows)" -ForegroundColor Green
@@ -645,6 +658,8 @@ function Show-Help {
     Write-Host "Quick chat via API" -ForegroundColor DarkGray
     Write-Host "    update              " -ForegroundColor Cyan -NoNewline
     Write-Host "Pull latest images and restart" -ForegroundColor DarkGray
+    Write-Host "    report              " -ForegroundColor Cyan -NoNewline
+    Write-Host "Generate Windows diagnostics bundle" -ForegroundColor DarkGray
     Write-Host "    version             " -ForegroundColor Cyan -NoNewline
     Write-Host "Show version" -ForegroundColor DarkGray
     Write-Host "    help                " -ForegroundColor Cyan -NoNewline
@@ -683,6 +698,7 @@ switch ($Command.ToLower()) {
     }
     "chat"    { Invoke-Chat -Message ($Arguments -join " ") }
     "update"  { Invoke-Update }
+    "report"  { Invoke-Report }
     "version" { Write-Host "Dream Server v$($script:DS_VERSION) (Windows)" -ForegroundColor Green }
     "help"    { Show-Help }
     default   {

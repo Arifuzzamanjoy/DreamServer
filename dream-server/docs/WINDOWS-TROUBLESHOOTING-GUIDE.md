@@ -38,6 +38,24 @@ For GPU and WSL2-specific steps, see **WINDOWS-WSL2-GPU-GUIDE.md** in the same `
 
 ---
 
+## Generate a support report (`dream.ps1 report`)
+
+If install/runtime problems are hard to reproduce, generate a structured Windows report before opening an issue:
+
+```powershell
+.\dream-server\installers\windows\dream.ps1 report
+```
+
+This creates:
+
+- `artifacts/windows-report/report.json` (full diagnostics payload)
+- `artifacts/windows-report/report.txt` (human-readable summary)
+
+The report includes platform/GPU basics, compose flags, `docker version`, `docker info`, `docker compose ... config`, `docker compose ... ps -a`, and key local health checks.
+Attach `report.json` to GitHub issues or Discord support threads.
+
+---
+
 ## Before You Start
 
 ### What You Need
