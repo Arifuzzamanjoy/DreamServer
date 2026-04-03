@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-02T17:24:18Z",
+  "generated_at": "2026-04-03T09:13:20Z",
   "schema_version": "1.0.0",
   "extensions": [
     {
@@ -180,7 +180,7 @@
           ]
         },
         {
-          "id": "sound-effects",
+          "id": "audiocraft-sound-effects",
           "name": "Sound Effects",
           "description": "Generate sound effects from text with AudioGen",
           "icon": "Volume2",
@@ -285,7 +285,7 @@
           ]
         },
         {
-          "id": "sound-effects",
+          "id": "bark-sound-effects",
           "name": "Sound Effects",
           "description": "Generate music snippets and ambient sound effects",
           "icon": "Music",
@@ -613,7 +613,7 @@
         "amd",
         "nvidia"
       ],
-      "compose_file": "compose.yaml.disabled",
+      "compose_file": "compose.yaml",
       "depends_on": [],
       "port": 5001,
       "external_port_default": 8002,
@@ -685,7 +685,7 @@
       "depends_on": [],
       "port": 3000,
       "external_port_default": 7801,
-      "health_endpoint": "/api/v1/health",
+      "health_endpoint": "/api/v1/ping",
       "env_vars": [
         {
           "key": "FLOWISE_USERNAME",
@@ -773,7 +773,7 @@
       "tags": [],
       "features": [
         {
-          "id": "image-generation",
+          "id": "fooocus-image-generation",
           "name": "Image Generation",
           "description": "User-friendly image generation with Stable Diffusion",
           "icon": "Image",
@@ -818,7 +818,7 @@
       ],
       "features": [
         {
-          "id": "image-generation",
+          "id": "forge-image-generation",
           "name": "Image Generation",
           "description": "Full Stable Diffusion control with advanced settings",
           "icon": "Image",
@@ -1130,7 +1130,7 @@
       ],
       "features": [
         {
-          "id": "image-generation",
+          "id": "invokeai-image-generation",
           "name": "Image Generation",
           "description": "Professional Stable Diffusion image generation with FLUX support",
           "icon": "Image",
@@ -1570,7 +1570,7 @@
           "priority": 5
         },
         {
-          "id": "image-generation",
+          "id": "localai-image-generation",
           "name": "Image Generation",
           "description": "Generate images with local diffusion models",
           "icon": "Image",
@@ -1621,7 +1621,7 @@
           "priority": 8
         },
         {
-          "id": "voice-cloning",
+          "id": "localai-voice-cloning",
           "name": "Voice Cloning",
           "description": "Clone voices for TTS with local models",
           "icon": "Mic",
@@ -1941,7 +1941,7 @@
       "tags": [],
       "features": [
         {
-          "id": "voice-cloning",
+          "id": "rvc-voice-cloning",
           "name": "Voice Cloning",
           "description": "Retrieval-based voice conversion and cloning",
           "icon": "Mic",
