@@ -92,15 +92,21 @@ def get_session(request: Request) -> CachedPrivacyShield:
     return sessions[session_key]
 
 
+def _is_authenticated(request: Request) -> bool:
+    """Check Bearer token from request headers directly (avoids FastAPI Security() version issues)."""
+    auth = request.headers.get("authorization", "")
+    return auth.startswith("Bearer ") and secrets.compare_digest(auth[7:], SHIELD_API_KEY)
+
+
 @app.get("/health")
-async def health(credentials: Optional[HTTPAuthorizationCredentials] = Security(security_scheme, auto_error=False)):
+async def health(request: Request):
     """Health check endpoint. Sensitive fields require authentication."""
     base = {
         "status": "ok",
         "service": "api-privacy-shield",
         "version": "0.2.0",
     }
-    if credentials and secrets.compare_digest(credentials.credentials, SHIELD_API_KEY):
+    if _is_authenticated(request):
         base.update({
             "target_api": TARGET_API_BASE,
             "cache_enabled": CACHE_ENABLED,
@@ -110,13 +116,13 @@ async def health(credentials: Optional[HTTPAuthorizationCredentials] = Security(
 
 
 @app.get("/stats")
-async def stats(credentials: Optional[HTTPAuthorizationCredentials] = Security(security_scheme, auto_error=False)):
+async def stats(request: Request):
     """Session statistics. Sensitive metrics require authentication."""
     base = {
         "cache_enabled": CACHE_ENABLED,
         "cache_size": CACHE_SIZE,
     }
-    if credentials and secrets.compare_digest(credentials.credentials, SHIELD_API_KEY):
+    if _is_authenticated(request):
         total_pii = sum(
             s.detector.get_stats()['unique_pii_count']
             for s in sessions.values()
