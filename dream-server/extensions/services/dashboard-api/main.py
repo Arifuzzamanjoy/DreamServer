@@ -187,8 +187,14 @@ async def preflight_gpu():
 @app.get("/api/preflight/required-ports")
 async def preflight_required_ports():
     """Return the list of service ports for preflight checking (no auth required)."""
+    # When health cache exists, filter out services not in the compose stack
+    cached = get_cached_services()
+    deployed = {s.id for s in cached if s.status != "not_deployed"} if cached else None
+
     ports = []
     for sid, cfg in SERVICES.items():
+        if deployed is not None and sid not in deployed:
+            continue
         ext_port = cfg.get("external_port", cfg.get("port", 0))
         if ext_port:
             ports.append({"port": ext_port, "service": cfg.get("name", sid)})
