@@ -35,7 +35,7 @@ service:
     - key: DIFY_OPENAI_API_KEY
       required: false
       secret: true
-      default: "sk-dreamserver"
+      default: "dummy-key"
       description: "API key for OpenAI-compatible endpoint"
     - key: DIFY_INIT_PASSWORD
       required: false
