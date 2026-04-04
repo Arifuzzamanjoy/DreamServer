@@ -269,7 +269,7 @@ MODELS_INI_EOF
 
     # ── Compose syntax validation ──────────────────────────────
     ai "Validating compose stack configuration..."
-    if ! $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" config --quiet 2>"$LOG_FILE.compose-check"; then
+    if ! $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" config --quiet 1>/dev/null 2>"$LOG_FILE.compose-check"; then
         ai_bad "Compose configuration is invalid"
         ai "Check $LOG_FILE.compose-check for details"
         cat "$LOG_FILE.compose-check" >&2
