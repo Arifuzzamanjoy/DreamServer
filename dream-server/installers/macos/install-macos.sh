@@ -290,6 +290,7 @@ else
     mkdir -p "${INSTALL_DIR}/data/n8n"
     mkdir -p "${INSTALL_DIR}/data/qdrant"
     mkdir -p "${INSTALL_DIR}/data/models"
+    mkdir -p "${INSTALL_DIR}/data/privacy-shield"
     mkdir -p "${INSTALL_DIR}/data/langfuse/postgres"
     mkdir -p "${INSTALL_DIR}/data/langfuse/clickhouse"
     mkdir -p "${INSTALL_DIR}/data/langfuse/redis"
