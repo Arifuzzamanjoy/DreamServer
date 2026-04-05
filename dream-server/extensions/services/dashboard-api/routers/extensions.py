@@ -490,7 +490,7 @@ async def extension_logs(
             detail = err_body.get("error", f"Host agent error: HTTP {exc.code}")
         except (json.JSONDecodeError, OSError):
             detail = f"Host agent returned HTTP {exc.code}"
-        raise HTTPException(status_code=exc.code, detail=detail)
+        raise HTTPException(status_code=502, detail=detail)
     except (urllib.error.URLError, OSError):
         raise HTTPException(
             status_code=503,
