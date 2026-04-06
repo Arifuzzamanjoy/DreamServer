@@ -52,6 +52,9 @@ const STATUS_STYLES = {
   disabled:      'bg-theme-border text-theme-text-muted',
   not_installed: 'border border-theme-border text-theme-text-muted',
   incompatible:  'bg-orange-500/20 text-orange-400',
+  installing:    'bg-blue-500/20 text-blue-400',
+  setting_up:    'bg-blue-500/20 text-blue-400',
+  error:         'bg-red-500/20 text-red-300',
 }
 
 export default function Extensions() {
@@ -67,6 +70,8 @@ export default function Extensions() {
   const [toast, setToast] = useState(null)
   const [consoleExt, setConsoleExt] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [installProgress, setInstallProgress] = useState(null)
+  const installProgressRef = useRef(null)
 
   useEffect(() => {
     fetchCatalog()
@@ -106,6 +111,23 @@ export default function Extensions() {
   const handleMutation = async (serviceId, action) => {
     setMutating(serviceId)
     setConfirm(null)
+
+    let pollInterval = null
+    if (action === 'install' || action === 'enable') {
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await fetchJson(`/api/extensions/${serviceId}/progress`)
+          if (res.ok) {
+            const data = await res.json()
+            if (data.status !== 'idle') {
+            installProgressRef.current = data
+            setInstallProgress(data)
+          }
+          }
+        } catch { /* ignore polling errors */ }
+      }, 3000)
+    }
+
     try {
       const url = action === 'uninstall'
         ? `/api/extensions/${serviceId}`
@@ -114,7 +136,7 @@ export default function Extensions() {
         : `/api/extensions/${serviceId}/${action}`
       const opts = {
         method: action === 'uninstall' || action === 'purge' ? 'DELETE' : 'POST',
-        signal: AbortSignal.timeout(120000),
+        signal: AbortSignal.timeout(300000),
       }
       if (action === 'purge') {
         opts.headers = { 'Content-Type': 'application/json' }
@@ -141,8 +163,14 @@ export default function Extensions() {
       }
       await fetchCatalog()
     } catch (err) {
-      setToast({ type: 'error', text: friendlyError(err.message) || `Failed to ${action} extension` })
+      const progressError = installProgressRef.current?.service_id === serviceId
+          ? installProgressRef.current.error : null
+      const base = friendlyError(err.message) || `Failed to ${action} extension`
+      setToast({ type: 'error', text: progressError ? `${base} — ${progressError}` : base })
     } finally {
+      if (pollInterval) clearInterval(pollInterval)
+      installProgressRef.current = null
+      setInstallProgress(null)
       setMutating(null)
     }
   }
@@ -176,8 +204,8 @@ export default function Extensions() {
       .filter(Boolean)
   )]
 
-  const STATUS_FILTERS = ['all', 'enabled', 'stopped', 'disabled', 'not_installed', 'incompatible']
-  const STATUS_LABELS = { all: 'All', enabled: 'Enabled', stopped: 'Stopped', disabled: 'Disabled', not_installed: 'Not Installed', incompatible: 'Incompatible' }
+  const STATUS_FILTERS = ['all', 'enabled', 'stopped', 'disabled', 'installing', 'setting_up', 'error', 'not_installed', 'incompatible']
+  const STATUS_LABELS = { all: 'All', enabled: 'Enabled', stopped: 'Stopped', disabled: 'Disabled', installing: 'Installing', setting_up: 'Setting Up', error: 'Error', not_installed: 'Not Installed', incompatible: 'Incompatible' }
 
   // Filter extensions
   const query = search.toLowerCase()
@@ -231,6 +259,8 @@ export default function Extensions() {
           <SummaryItem label="Installed" value={summary.installed ?? 0} color="bg-green-500" />
           <SummaryItem label="Stopped" value={summary.stopped ?? 0} color="bg-red-500" />
           <SummaryItem label="Available" value={summary.not_installed ?? 0} color="bg-theme-accent" />
+          <SummaryItem label="Installing" value={summary.installing ?? 0} color="bg-blue-500" />
+          <SummaryItem label="Error" value={summary.error ?? 0} color="bg-red-500" />
           <SummaryItem label="Incompatible" value={summary.incompatible ?? 0} color="bg-orange-500" />
         </div>
       </div>
@@ -305,6 +335,7 @@ export default function Extensions() {
               onConsole={() => setConsoleExt(ext)}
               onAction={requestAction}
               mutating={mutating}
+              installProgress={installProgress}
             />
           ))}
         </div>
@@ -371,7 +402,7 @@ function SummaryItem({ label, value, color }) {
   )
 }
 
-function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, onAction, mutating }) {
+function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, onAction, mutating, installProgress }) {
   const iconName = ext.features?.[0]?.icon
   const Icon = (iconName && ICON_MAP[iconName]) || Package
   const status = ext.status || 'not_installed'
@@ -401,12 +432,16 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
               status === 'enabled' ? 'bg-green-500/10' :
               status === 'stopped' ? 'bg-red-500/10' :
               status === 'incompatible' ? 'bg-orange-500/10' :
+              (status === 'installing' || status === 'setting_up') ? 'bg-blue-500/10' :
+              status === 'error' ? 'bg-red-500/10' :
               'bg-theme-card'
             }`}>
               <Icon size={16} className={
                 status === 'enabled' ? 'text-green-400' :
                 status === 'stopped' ? 'text-red-400' :
                 status === 'incompatible' ? 'text-orange-400' :
+                (status === 'installing' || status === 'setting_up') ? 'text-blue-400' :
+                status === 'error' ? 'text-red-400' :
                 'text-theme-text-muted'
               } />
             </div>
@@ -424,6 +459,19 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
                 title="Built-in service — managed by DreamServer"
               >
                 core
+              </span>
+            ) : (status === 'installing' || status === 'setting_up') ? (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 flex items-center gap-1">
+                <Loader2 size={8} className="animate-spin" />
+                {status === 'setting_up' ? 'setting up' : 'installing'}
+              </span>
+            ) : status === 'error' ? (
+              <span
+                className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 cursor-pointer"
+                onClick={onConsole}
+                title="View error details"
+              >
+                error
               </span>
             ) : (
               <span
@@ -455,6 +503,14 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
         </div>
         <p className="text-xs text-theme-text-muted line-clamp-2 leading-relaxed">{ext.description || 'No description available.'}</p>
       </div>
+
+      {/* Progress indicator */}
+      {isMutating && installProgress?.service_id === ext.id && (
+        <div className="px-4 py-2 border-t border-theme-border/60 text-xs text-blue-300 flex items-center gap-2">
+          <Loader2 size={12} className="animate-spin" />
+          <span>{installProgress.phase_label || 'Working...'}</span>
+        </div>
+      )}
 
       {/* Card footer */}
       <div className="border-t border-theme-border/60 px-4 py-2.5 flex items-center justify-between bg-theme-card/30">
