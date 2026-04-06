@@ -16,6 +16,7 @@ services:
       - OPENCLAW_HTTP_API=${OPENCLAW_HTTP_API:-}
       - LITELLM_KEY=${LITELLM_KEY:-}
       - SEARXNG_BASE_URL=http://searxng:8080
+      - OPENCLAW_EXTERNAL_PORT=${OPENCLAW_PORT:-7860}
     entrypoint: ["/bin/sh", "-c", "node /config/inject-token.js; export OPENCLAW_CONFIG=/tmp/openclaw-config.json; exec docker-entrypoint.sh node openclaw.mjs gateway --allow-unconfigured --bind lan"]
     volumes:
       - ./config/openclaw:/config:ro
