@@ -545,11 +545,17 @@ else
             fi
         fi
 
+        # Read reasoning mode from .env (default off to prevent thinking models
+        # from consuming the entire token budget on internal reasoning)
+        _reasoning=$(grep '^LLAMA_REASONING=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 || echo "")
+        [[ -z "$_reasoning" ]] && _reasoning="off"
+
         "$LLAMA_SERVER_BIN" \
             --host 0.0.0.0 --port 8080 \
             --model "$MODEL_FULL_PATH" \
             --ctx-size "$MAX_CONTEXT" \
             --n-gpu-layers 999 \
+            --reasoning "$_reasoning" \
             --metrics \
             > "$LLAMA_SERVER_LOG" 2>&1 &
         LLAMA_PID=$!
