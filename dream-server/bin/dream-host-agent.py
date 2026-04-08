@@ -7,6 +7,7 @@ import collections
 import json
 import logging
 import os
+import platform
 import re
 import secrets
 import shutil
@@ -604,9 +605,20 @@ def main():
         pid_path.write_text(str(os.getpid()), encoding="utf-8")
         atexit.register(lambda: pid_path.unlink(missing_ok=True))
 
-    server = ThreadedHTTPServer(("0.0.0.0", port), AgentHandler)
+    # Determine bind address: env var override, or platform-aware default.
+    # macOS/Windows: 127.0.0.1 (Docker Desktop routes host.docker.internal to loopback)
+    # Linux: 0.0.0.0 (host.docker.internal resolves to Docker bridge gateway, not loopback)
+    bind_addr = env.get("DREAM_AGENT_BIND", "")
+    if not bind_addr:
+        bind_addr = "127.0.0.1" if platform.system() in ("Darwin", "Windows") else "0.0.0.0"
+
+    server = ThreadedHTTPServer((bind_addr, port), AgentHandler)
     signal.signal(signal.SIGTERM, lambda *_: server.shutdown())
-    logger.info("Dream Host Agent v%s listening on 0.0.0.0:%d", VERSION, port)
+    logger.info("Dream Host Agent v%s listening on %s:%d", VERSION, bind_addr, port)
+    if bind_addr == "0.0.0.0":
+        logger.warning(
+            "Agent is listening on all interfaces. Set DREAM_AGENT_BIND=127.0.0.1 in .env to restrict."
+        )
     logger.info("Install dir: %s | GPU: %s | Tier: %s", INSTALL_DIR, GPU_BACKEND, TIER)
     try:
         server.serve_forever()
