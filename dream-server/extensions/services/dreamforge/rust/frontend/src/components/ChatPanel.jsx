@@ -77,7 +77,7 @@ export default function ChatPanel({ messages, status, pendingPermission, onSend,
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="border-t border-gray-800 bg-gray-900/50">
+      <form onSubmit={handleSubmit} className="liquid-metal-frame--soft border-t bg-gray-900/50" style={{ borderColor: 'rgba(157,0,255,0.12)' }}>
         <div className="flex items-end gap-2 max-w-4xl mx-auto p-3">
           <textarea
             ref={inputRef}
@@ -95,7 +95,7 @@ export default function ChatPanel({ messages, status, pendingPermission, onSend,
           <button
             type="submit"
             disabled={!input.trim() || status === 'running'}
-            className="px-4 py-3 rounded-xl bg-dream-600 hover:bg-dream-700 text-white text-sm font-medium
+            className="liquid-metal-button px-4 py-3 rounded-xl text-white text-sm font-medium
                        disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             Send

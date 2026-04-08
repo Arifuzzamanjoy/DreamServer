@@ -19,7 +19,7 @@ export default function ModeSwitch({ currentMode, onChange }) {
             title={mode.desc}
             className={`px-2 py-1 rounded text-xs transition-colors ${
               currentMode === mode.value
-                ? 'bg-dream-600 text-white'
+                ? 'liquid-metal-button text-white'
                 : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
             }`}
           >
