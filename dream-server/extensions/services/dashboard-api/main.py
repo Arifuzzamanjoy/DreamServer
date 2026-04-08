@@ -89,7 +89,7 @@ _SENSITIVE_ENV_KEY_RE = re.compile(
 )
 
 # --- Router imports ---
-from routers import workflows, features, setup, updates, agents, privacy, extensions, gpu as gpu_router, resources, voice
+from routers import workflows, features, setup, updates, agents, privacy, extensions, gpu as gpu_router, resources, voice, models as models_router
 
 logger = logging.getLogger(__name__)
 
@@ -768,6 +768,7 @@ app.include_router(extensions.router)
 app.include_router(gpu_router.router)
 app.include_router(resources.router)
 app.include_router(voice.router)
+app.include_router(models_router.router)
 
 
 # ================================================================

@@ -128,3 +128,31 @@ class MultiGPUStatus(BaseModel):
     split_mode: Optional[str] = None
     tensor_split: Optional[str] = None
     aggregate: GPUInfo
+
+
+class ModelLibraryEntry(BaseModel):
+    id: str
+    name: str
+    size: str
+    sizeGb: float
+    vramRequired: int
+    contextLength: int
+    specialty: str
+    description: str
+    tokensPerSec: int
+    quantization: Optional[str] = None
+    status: str  # "loaded", "downloaded", "available"
+    fitsVram: bool
+    fitsCurrentVram: bool
+
+
+class ModelLibraryGpu(BaseModel):
+    vramTotal: float
+    vramUsed: float
+    vramFree: float
+
+
+class ModelLibraryResponse(BaseModel):
+    models: list[ModelLibraryEntry]
+    gpu: Optional[ModelLibraryGpu] = None
+    currentModel: Optional[str] = None
