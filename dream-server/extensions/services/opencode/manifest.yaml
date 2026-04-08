@@ -14,7 +14,7 @@ service:
   external_port_default: 3003
   health: /
   type: host-systemd
-  gpu_backends: [amd, nvidia]
+  gpu_backends: [all]
   category: optional
   depends_on: []
   sidebar_icon: Code
@@ -31,4 +31,4 @@ features:
     enabled_services_all: [opencode]
     setup_time: Ready
     priority: 6
-    gpu_backends: [amd, nvidia]
+    gpu_backends: [all]

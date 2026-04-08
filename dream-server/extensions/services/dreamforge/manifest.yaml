@@ -15,7 +15,7 @@ service:
   health: /health
   ui_path: /
   type: docker
-  gpu_backends: [amd, nvidia, apple]
+  gpu_backends: [all]
   compose_file: compose.yaml
   category: optional
   depends_on: [llama-server]
@@ -67,7 +67,7 @@ features:
     enabled_services_any: [dreamforge]
     setup_time: Ready
     priority: 10
-    gpu_backends: [amd, nvidia, apple]
+    gpu_backends: [all]
   - id: rag-pipeline
     name: RAG Pipeline
     description: Document ingestion with TEI embeddings and Qdrant vector search
@@ -78,4 +78,4 @@ features:
     enabled_services_any: [dreamforge]
     setup_time: Ready
     priority: 20
-    gpu_backends: [amd, nvidia, apple]
+    gpu_backends: [all]
