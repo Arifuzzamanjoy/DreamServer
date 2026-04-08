@@ -97,14 +97,14 @@ if command -v docker &>/dev/null; then
     dream_containers=$(docker ps -a --filter "name=dream-" --format "{{.Names}}" 2>/dev/null || true)
     if [[ -n "$dream_containers" ]]; then
         log_info "Removing Dream Server containers..."
-        echo "$dream_containers" | xargs -r docker rm -f 2>/dev/null || true
+        echo "$dream_containers" | xargs docker rm -f 2>/dev/null || true
     fi
 
     # Remove dream-specific Docker volumes
     dream_volumes=$(docker volume ls --filter "name=dream" --format "{{.Name}}" 2>/dev/null || true)
     if [[ -n "$dream_volumes" ]]; then
         log_info "Removing Docker volumes..."
-        echo "$dream_volumes" | xargs -r docker volume rm 2>/dev/null || true
+        echo "$dream_volumes" | xargs docker volume rm 2>/dev/null || true
     fi
 
     log_ok "Docker cleanup complete"
