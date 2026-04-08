@@ -57,7 +57,7 @@ export default function ServicePanel() {
     <div className="mx-2 mb-2">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg bg-gray-800/60 hover:bg-gray-800 text-xs transition-colors"
+        className="liquid-metal-frame--soft w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs transition-colors"
       >
         <span className="text-gray-400 font-medium flex items-center gap-1.5">
           <span className="text-[10px]">{expanded ? '\u25BC' : '\u25B6'}</span>

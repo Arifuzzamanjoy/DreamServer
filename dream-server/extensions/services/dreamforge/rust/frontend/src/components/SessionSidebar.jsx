@@ -24,11 +24,16 @@ export default function SessionSidebar({ sessionId, sessions, onNewSession, onCl
   };
 
   return (
-    <div className="w-56 bg-gray-900 border-r border-gray-800 flex flex-col">
-      <div className="p-3 border-b border-gray-800">
+    <div className="w-56 border-r flex flex-col"
+      style={{
+        background: 'radial-gradient(circle at top left, rgba(157,0,255,0.15), transparent 28%), linear-gradient(180deg, #1a1722 0%, #17131f 58%, #110f17 100%)',
+        borderColor: 'rgba(157,0,255,0.16)',
+      }}
+    >
+      <div className="p-3 border-b" style={{ borderColor: 'rgba(157,0,255,0.12)' }}>
         <button
           onClick={onNewSession}
-          className="w-full px-3 py-2 rounded-lg bg-dream-700 hover:bg-dream-600 text-white text-sm font-medium transition-colors"
+          className="liquid-metal-button w-full px-3 py-2 rounded-lg text-white text-sm font-medium transition-colors"
         >
           + New Session
         </button>
@@ -46,7 +51,7 @@ export default function SessionSidebar({ sessionId, sessions, onNewSession, onCl
         />
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-1">
+      <div className="flex-1 overflow-y-auto p-3 space-y-1 liquid-metal-sequence-grid liquid-metal-sequence-grid--sessions">
         {/* Current session */}
         {sessionId && (
           <div className="rounded-lg bg-dream-900/40 border border-dream-700/50 p-2.5 mb-2">
@@ -61,7 +66,7 @@ export default function SessionSidebar({ sessionId, sessions, onNewSession, onCl
         {filteredSessions.map((session) => (
           <div
             key={session.id}
-            className="w-full rounded-lg bg-gray-800 hover:bg-gray-700 p-2.5 transition-colors group relative"
+            className="liquid-metal-frame liquid-metal-frame--soft w-full rounded-lg p-2.5 transition-colors group relative"
           >
             <button
               onClick={() => onSwitchSession(session.id)}
