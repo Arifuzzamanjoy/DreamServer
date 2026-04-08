@@ -187,6 +187,7 @@ fi
 dream_progress 96 "health" "Checking workflow and RAG services"
 [[ "$ENABLE_WORKFLOWS" == "true" ]] && _check_health "n8n" "http://localhost:${SERVICE_PORTS[n8n]:-5678}${SERVICE_HEALTH[n8n]:-/healthz}" 150 10
 [[ "$ENABLE_RAG" == "true" ]] && _check_health "Qdrant" "http://localhost:${SERVICE_PORTS[qdrant]:-6333}${SERVICE_HEALTH[qdrant]:-/}" 150 10
+[[ "${ENABLE_DREAMFORGE:-}" == "true" ]] && _check_health "DreamForge" "http://localhost:${SERVICE_PORTS[dreamforge]:-3010}${SERVICE_HEALTH[dreamforge]:-/health}" 150 10
 
 dream_progress 97 "health" "Health checks complete"
 echo ""

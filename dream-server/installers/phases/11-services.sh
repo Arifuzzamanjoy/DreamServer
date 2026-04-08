@@ -301,9 +301,13 @@ MODELS_INI_EOF
     _build_count=0
     _build_services=(dashboard dashboard-api ape token-spy privacy-shield)
     [[ "$ENABLE_COMFYUI" == "true" ]] && _build_services+=(comfyui)
+    [[ "${ENABLE_DREAMFORGE:-}" == "true" ]] && _build_services+=(dreamforge)
     [[ "$GPU_BACKEND" == "amd" ]] && _build_services+=(llama-server)
     if [[ "$GPU_BACKEND" == "nvidia" && " ${_build_services[*]} " == *" comfyui "* ]]; then
         ai "ComfyUI is compiling from source for NVIDIA — this takes 25-40 minutes on first run."
+    fi
+    if [[ " ${_build_services[*]} " == *" dreamforge "* ]]; then
+        ai "DreamForge is compiling from Rust source — this takes 15-25 minutes on first run."
     fi
     _build_total=${#_build_services[@]}
     for _svc in "${_build_services[@]}"; do

@@ -47,6 +47,10 @@ if $INTERACTIVE && ! $DRY_RUN; then
         echo
         [[ $REPLY =~ ^[Nn]$ ]] || ENABLE_COMFYUI=true
 
+        read -p "  Enable DreamForge agentic coding assistant (~15 min build)? [y/N] " -r < /dev/tty
+        echo
+        [[ $REPLY =~ ^[Yy]$ ]] && ENABLE_DREAMFORGE=true
+
         # Warn if ComfyUI enabled on low-tier hardware
         if [[ "$ENABLE_COMFYUI" == "true" ]]; then
             case "${TIER:-}" in
@@ -90,6 +94,21 @@ else
     fi
 fi
 unset _comfyui_compose
+
+# Sync DreamForge compose state with ENABLE_DREAMFORGE — same .disabled convention.
+_dreamforge_compose="$SCRIPT_DIR/extensions/services/dreamforge/compose.yaml"
+if [[ "${ENABLE_DREAMFORGE:-}" == "true" ]]; then
+    if [[ ! -f "$_dreamforge_compose" && -f "${_dreamforge_compose}.disabled" ]]; then
+        mv "${_dreamforge_compose}.disabled" "$_dreamforge_compose"
+        log "DreamForge compose re-enabled"
+    fi
+else
+    if [[ -f "$_dreamforge_compose" ]]; then
+        mv "$_dreamforge_compose" "${_dreamforge_compose}.disabled"
+        log "DreamForge compose disabled (agentic coding not enabled)"
+    fi
+fi
+unset _dreamforge_compose
 
 # Re-resolve compose flags now that feature selection may have disabled services.
 # Without this, Phases 4-11 use stale flags from Phase 2 that reference files

@@ -1293,7 +1293,14 @@ cmd_enable() {
     elif [[ -f "$disabled" ]]; then
         mv "$disabled" "$cf"
         _regenerate_compose_flags
-        success "$service_id enabled. Run 'dream start $service_id' to launch."
+        # Check if service needs a Docker build (has Dockerfile but no image)
+        if { [[ -f "$ext_dir/Dockerfile" ]] || [[ -f "$ext_dir/Dockerfile.rust" ]]; } && \
+           ! docker image inspect "dream-server-${service_id}:latest" &>/dev/null; then
+            success "$service_id enabled. Image needs building first:"
+            echo "  docker compose build $service_id && dream start $service_id"
+        else
+            success "$service_id enabled. Run 'dream start $service_id' to launch."
+        fi
     else
         error "$service_id has no compose fragment (core service? already enabled?)"
     fi
