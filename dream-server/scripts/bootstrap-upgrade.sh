@@ -313,12 +313,27 @@ if command -v docker &>/dev/null && docker ps --filter name=dream-llama-server -
     fi
 
     # Wait for health (up to 5 minutes for the larger model to load)
+    # For AMD/Lemonade: check that model_loaded is non-null in the JSON response.
+    # Lemonade returns 200 with "model_loaded": null when no model is loaded yet.
+    # For llama.cpp: a simple 200 check is sufficient — the server only starts
+    # after loading the model specified in --model.
     log "Waiting for llama-server health at $_health_url ..."
     _healthy=false
     for _i in $(seq 1 60); do
-        if curl -sf --max-time 5 "$_health_url" &>/dev/null; then
-            _healthy=true
-            break
+        _resp=$(curl -sf --max-time 5 "$_health_url" 2>/dev/null || echo "")
+        if [[ -n "$_resp" ]]; then
+            if [[ "$_gpu_backend" == "amd" ]]; then
+                # Lemonade: verify a model is actually loaded, not just "status: ok"
+                if echo "$_resp" | grep -q '"model_loaded"' && ! echo "$_resp" | grep -q '"model_loaded": *null'; then
+                    _healthy=true
+                    break
+                fi
+                log "Lemonade healthy but no model loaded yet (attempt $_i/60)"
+            else
+                # llama.cpp: 200 means model is loaded
+                _healthy=true
+                break
+            fi
         fi
         sleep 5
     done
