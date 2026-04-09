@@ -236,6 +236,18 @@ n-ctx = ${FULL_MAX_CONTEXT}
 EOF
 log "models.ini updated"
 
+# ── Phase 4b: Remove bootstrap model ──
+# Lemonade's --extra-models-dir auto-discovers all GGUFs in /models and may
+# load the bootstrap model instead of the full one specified in models.ini.
+# Remove the bootstrap file to prevent this.
+BOOTSTRAP_GGUF="Qwen3.5-2B-Q4_K_M.gguf"
+BOOTSTRAP_PATH="$MODELS_DIR/$BOOTSTRAP_GGUF"
+if [[ -f "$BOOTSTRAP_PATH" && "$FULL_GGUF_FILE" != "$BOOTSTRAP_GGUF" ]]; then
+    log "Removing bootstrap model: $BOOTSTRAP_GGUF"
+    rm -f "$BOOTSTRAP_PATH"
+    log "Bootstrap model removed"
+fi
+
 # ── Phase 5: Hot-swap llama-server (if running) ──
 # Read OLLAMA_PORT from .env (nohup doesn't inherit env vars from parent)
 if [[ -f "$ENV_FILE" ]]; then
