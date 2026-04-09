@@ -80,8 +80,10 @@ export default function Settings() {
   const [envSearch, setEnvSearch] = useState('')
   const [envActiveSection, setEnvActiveSection] = useState(null)
   const [envSaving, setEnvSaving] = useState(false)
+  const [envApplying, setEnvApplying] = useState(false)
   const [envIssues, setEnvIssues] = useState([])
   const [envRevealSecrets, setEnvRevealSecrets] = useState({})
+  const [envApplyPlan, setEnvApplyPlan] = useState(null)
   const [statusCache, setStatusCache] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -95,6 +97,7 @@ export default function Settings() {
     setEnvValuesOriginal(payload?.values || {})
     setEnvIssues(payload?.issues || [])
     setEnvRevealSecrets({})
+    setEnvApplyPlan(payload?.applyPlan || null)
     setEnvActiveSection(current => (current && payload?.sections?.some(section => section.id === current)) ? current : (payload?.sections?.[0]?.id || null))
   }
 
@@ -168,12 +171,30 @@ export default function Settings() {
         body: JSON.stringify({ mode: 'form', values: envValues }),
       })
       applyEnvEditorPayload(payload)
-      setNotice({ type: 'info', text: `.env saved.${payload?.backupPath ? ` Backup: ${payload.backupPath}.` : ''} Restart or rebuild the stack to apply service-level changes.` })
+      setNotice({ type: 'info', text: `.env saved.${payload?.backupPath ? ` Backup: ${payload.backupPath}.` : ''} ${payload?.applyPlan?.summary || 'Restart or rebuild the stack to apply service-level changes.'}` })
     } catch (err) {
       if (err?.details?.issues?.length) setEnvIssues(err.details.issues)
       setNotice({ type: 'danger', text: getErrorText(err) })
     } finally {
       setEnvSaving(false)
+    }
+  }
+
+  const handleApplyEnv = async () => {
+    if (!envApplyPlan?.supported || !envApplyPlan?.services?.length) return
+    setEnvApplying(true)
+    try {
+      const payload = await fetchPayload('/api/settings/env/apply', 180000, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service_ids: envApplyPlan.services }),
+      })
+      setEnvApplyPlan(null)
+      setNotice({ type: 'info', text: payload?.message || 'Runtime changes applied successfully.' })
+    } catch (err) {
+      setNotice({ type: 'danger', text: getErrorText(err) })
+    } finally {
+      setEnvApplying(false)
     }
   }
 
@@ -228,7 +249,7 @@ export default function Settings() {
 
         {services.length > 0 ? <SettingsSection title="Routing Table" icon={Network}><div className="space-y-3"><div className="flex flex-wrap items-center gap-2"><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-theme-text-muted/60">route surfaces</p><span className="rounded-full border border-white/10 bg-black/[0.12] px-2.5 py-1 text-[10px] font-mono uppercase tracking-[0.16em] text-theme-text">{getDashboardHost()}</span></div><div className="grid gap-3 xl:grid-cols-3">{routingGroups.map(group => <RoutingGroup key={group.key} {...group} />)}</div></div></SettingsSection> : null}
 
-        {envEditor ? <SettingsSection title="Environment Editor" icon={FileText}><EnvEditor editor={envEditor} search={envSearch} onSearchChange={setEnvSearch} sections={envSections} activeSection={activeEnvSection} onSectionChange={setEnvActiveSection} fields={envFields} values={envValues} issues={envIssues} issueMap={envIssueMap} revealedSecrets={envRevealSecrets} onToggleReveal={(key) => setEnvRevealSecrets(current => ({ ...current, [key]: !current[key] }))} onFieldChange={(key, value) => setEnvValues(current => ({ ...current, [key]: value }))} onReload={() => fetchEnvEditor({ announce: true })} onSave={handleSaveEnv} dirty={envDirty} saving={envSaving} /></SettingsSection> : null}
+        {envEditor ? <SettingsSection title="Environment Editor" icon={FileText}><EnvEditor editor={envEditor} search={envSearch} onSearchChange={setEnvSearch} sections={envSections} activeSection={activeEnvSection} onSectionChange={setEnvActiveSection} fields={envFields} values={envValues} issues={envIssues} issueMap={envIssueMap} revealedSecrets={envRevealSecrets} onToggleReveal={(key) => setEnvRevealSecrets(current => ({ ...current, [key]: !current[key] }))} onFieldChange={(key, value) => setEnvValues(current => ({ ...current, [key]: value }))} onReload={() => fetchEnvEditor({ announce: true })} onSave={handleSaveEnv} onApply={handleApplyEnv} dirty={envDirty} saving={envSaving} applyPlan={envApplyPlan} applying={envApplying} /></SettingsSection> : null}
 
         <SettingsSection title="Storage" icon={HardDrive}><StorageBlock storage={storage} /></SettingsSection>
         <SettingsSection title="Updates" icon={RefreshCw}><div className="flex items-center justify-between gap-4"><div><p className="text-theme-text">{version?.update_available && version?.latest ? `Update available: v${version.latest}` : `Installed version: v${version?.version || 'Unknown'}`}</p><p className="text-sm text-theme-text-muted">{version?.checked_at ? `Last checked: ${new Date(version.checked_at).toLocaleString()}` : 'Checks GitHub in the background to avoid blocking the page.'}</p></div><button onClick={() => { setNotice({ type: 'info', text: 'Checking for updates...' }); void fetchVersionInfo({ announce: true }) }} className="liquid-metal-button px-4 py-2 text-white rounded-lg text-sm flex items-center gap-2"><RefreshCw size={16} />Check for Updates</button></div></SettingsSection>

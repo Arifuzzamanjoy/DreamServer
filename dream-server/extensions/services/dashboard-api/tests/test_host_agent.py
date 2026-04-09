@@ -2,7 +2,7 @@
 
 import importlib.util
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # Import the host agent module from bin/ using importlib.
 # The module has an ``if __name__ == "__main__":`` guard so no server starts.
@@ -14,6 +14,9 @@ _spec.loader.exec_module(_mod)
 
 _parse_mem_value = _mod._parse_mem_value
 _iso_now = _mod._iso_now
+_to_bash_path = _mod._to_bash_path
+resolve_compose_flags = _mod.resolve_compose_flags
+validate_core_recreate_ids = _mod.validate_core_recreate_ids
 
 
 # --- _parse_mem_value ---
@@ -70,3 +73,47 @@ class TestIsoNow:
     def test_contains_t_separator(self):
         result = _iso_now()
         assert "T" in result
+
+
+class TestToBashPath:
+
+    def test_leaves_posix_paths_unchanged(self, monkeypatch):
+        monkeypatch.setattr(_mod.platform, "system", lambda: "Linux")
+        assert _to_bash_path(PurePosixPath("/opt/dream-server")) == "/opt/dream-server"
+
+    def test_converts_windows_drive_path(self, monkeypatch):
+        monkeypatch.setattr(_mod.platform, "system", lambda: "Windows")
+        assert _to_bash_path(Path(r"C:\Users\Gabriel\dream-server")) == "/c/Users/Gabriel/dream-server"
+
+
+class TestValidateCoreRecreateIds:
+
+    def test_accepts_allowed_core_service(self, monkeypatch):
+        monkeypatch.setattr(_mod, "CORE_SERVICE_IDS", {"llama-server", "dashboard-api"})
+        ok, error = validate_core_recreate_ids(["llama-server"])
+        assert ok is True
+        assert error == ""
+
+    def test_rejects_non_core_service(self, monkeypatch):
+        monkeypatch.setattr(_mod, "CORE_SERVICE_IDS", {"dashboard-api"})
+        ok, error = validate_core_recreate_ids(["llama-server"])
+        assert ok is False
+        assert "not a core" in error.lower()
+
+    def test_rejects_disallowed_core_service(self, monkeypatch):
+        monkeypatch.setattr(_mod, "CORE_SERVICE_IDS", {"dashboard-api"})
+        ok, error = validate_core_recreate_ids(["dashboard-api"])
+        assert ok is False
+        assert "not eligible" in error.lower()
+
+
+class TestResolveComposeFlags:
+
+    def test_prefers_saved_compose_flags_file(self, tmp_path, monkeypatch):
+        install_dir = tmp_path / "dream-server"
+        install_dir.mkdir()
+        (install_dir / ".compose-flags").write_text("--env-file .env -f docker-compose.base.yml", encoding="utf-8")
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+
+        assert resolve_compose_flags() == ["--env-file", ".env", "-f", "docker-compose.base.yml"]

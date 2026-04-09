@@ -78,4 +78,19 @@ describe('EnvEditor', () => {
     expect(screen.getByPlaceholderText('Not set')).toBeInTheDocument()
     expect(screen.getByText(/Enter a value to store this secret/i)).toBeInTheDocument()
   })
+
+  test('enables apply button when a saved runtime change can be applied', () => {
+    renderEditor({
+      applyPlan: {
+        status: 'ready',
+        supported: true,
+        services: ['llama-server'],
+        summary: 'Saved changes are ready to apply to llama-server.',
+      },
+    })
+
+    expect(screen.getByRole('button', { name: /apply changes/i })).toBeEnabled()
+    expect(screen.getByText(/Pending runtime changes/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/llama-server/i).length).toBeGreaterThan(0)
+  })
 })

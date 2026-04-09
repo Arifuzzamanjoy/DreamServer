@@ -16,10 +16,14 @@ export default function EnvEditor({
   onFieldChange,
   onReload,
   onSave,
+  onApply = () => {},
   dirty,
   saving,
+  applyPlan = null,
+  applying = false,
 }) {
   const activeKeys = activeSection?.keys || []
+  const canApply = Boolean(applyPlan?.supported && applyPlan?.services?.length > 0 && editor?.agentAvailable !== false)
 
   return (
     <div className="space-y-4">
@@ -40,6 +44,12 @@ export default function EnvEditor({
           <div className="flex flex-wrap items-center gap-2">
             <ToolbarButton icon={RefreshCw} label="Reload" onClick={onReload} />
             <ToolbarButton icon={Save} label={saving ? 'Saving...' : 'Save .env'} onClick={onSave} primary disabled={!dirty || saving} />
+            <ToolbarButton
+              icon={RefreshCw}
+              label={applying ? 'Applying...' : 'Apply changes'}
+              onClick={onApply}
+              disabled={!canApply || applying || saving}
+            />
           </div>
         </div>
 
@@ -47,12 +57,30 @@ export default function EnvEditor({
           <Chip>{Object.keys(fields || {}).length} fields</Chip>
           <Chip>{issues.length} validation issue{issues.length === 1 ? '' : 's'}</Chip>
           {editor.backupPath ? <Chip accent>last backup {editor.backupPath}</Chip> : null}
+          {applyPlan?.status && applyPlan.status !== 'none' ? <Chip accent>{applyPlan.status}</Chip> : null}
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      {applyPlan?.status && applyPlan.status !== 'none' ? (
+        <div className="rounded-xl border border-theme-accent/20 bg-theme-accent/10 px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-theme-accent-light">Pending runtime changes</p>
+          <p className="mt-1 text-sm text-theme-text">{applyPlan.summary}</p>
+        </div>
+      ) : null}
+
+      <div className="grid gap-3 sm:grid-cols-3">
         <Hint title="Save behavior" text={editor.saveHint} />
         <Hint title="Restart behavior" text={editor.restartHint} />
+        <Hint
+          title="Apply behavior"
+          text={
+            editor?.agentAvailable === false
+              ? 'Dream host agent is offline. Start it first, then use Apply changes to recreate affected services.'
+              : canApply
+                ? `Apply changes will recreate: ${applyPlan.services.join(', ')}.`
+                : 'Apply changes becomes available after saving keys that affect running services.'
+          }
+        />
       </div>
 
       {issues.length > 0 ? (

@@ -48,6 +48,25 @@ USER_EXTENSIONS_DIR: Path = Path()
 
 # Per-service locks to prevent concurrent start+stop races on the same service
 _service_locks: dict[str, threading.Lock] = collections.defaultdict(threading.Lock)
+_ALLOWED_CORE_RECREATE_IDS = frozenset({
+    "llama-server", "open-webui", "litellm", "langfuse", "n8n",
+    "openclaw", "opencode", "perplexica", "searxng", "qdrant",
+    "tts", "whisper", "embeddings", "token-spy", "comfyui",
+    "ape", "privacy-shield", "dreamforge",
+})
+
+
+def _to_bash_path(path: Path) -> str:
+    """Convert a Windows path into a Git-Bash-friendly POSIX path when needed."""
+    resolved = str(path)
+    if platform.system() != "Windows":
+        return resolved
+    normalized = resolved.replace("\\", "/")
+    match = re.match(r"^([A-Za-z]):/(.*)$", normalized)
+    if match:
+        drive, tail = match.groups()
+        return f"/{drive.lower()}/{tail}"
+    return normalized
 
 
 def load_env(env_path: Path) -> dict:
@@ -79,11 +98,17 @@ def load_core_service_ids(config_path: Path) -> set:
 
 
 def resolve_compose_flags() -> list:
+    flags_file = INSTALL_DIR / ".compose-flags"
+    if flags_file.exists():
+        raw = flags_file.read_text(encoding="utf-8").strip()
+        if raw:
+            return raw.split()
+
     script = INSTALL_DIR / "scripts" / "resolve-compose-stack.sh"
     if not script.exists():
         raise RuntimeError(f"resolve-compose-stack.sh not found at {script}")
     result = subprocess.run(
-        ["bash", str(script), "--script-dir", str(INSTALL_DIR),
+        ["bash", _to_bash_path(script), "--script-dir", _to_bash_path(INSTALL_DIR),
          "--tier", TIER, "--gpu-backend", GPU_BACKEND],
         capture_output=True, text=True, check=True,
         cwd=str(INSTALL_DIR), timeout=30,
@@ -159,6 +184,40 @@ def docker_compose_action(service_id: str, action: str) -> tuple:
         return (True, "") if result.returncode == 0 else (False, result.stderr[:500])
     except subprocess.TimeoutExpired:
         return False, f"Docker compose operation timed out ({timeout}s)"
+
+
+def validate_core_recreate_ids(service_ids: list[str]) -> tuple[bool, str]:
+    """Validate a requested set of core services for safe recreation."""
+    if not isinstance(service_ids, list) or not service_ids:
+        return False, "service_ids must be a non-empty list"
+
+    for service_id in service_ids:
+        if not isinstance(service_id, str) or not SERVICE_ID_RE.match(service_id):
+            return False, f"Invalid service_id: {service_id!r}"
+        if service_id not in CORE_SERVICE_IDS:
+            return False, f"Service is not a core DreamServer service: {service_id}"
+        if service_id not in _ALLOWED_CORE_RECREATE_IDS:
+            return False, f"Service is not eligible for dashboard-triggered recreation: {service_id}"
+
+    return True, ""
+
+
+def docker_compose_recreate(service_ids: list[str]) -> tuple:
+    """Force-recreate a set of allowed core services using the current compose stack."""
+    ok, error = validate_core_recreate_ids(service_ids)
+    if not ok:
+        return False, error
+
+    flags = resolve_compose_flags()
+    cmd = ["docker", "compose"] + flags + ["up", "-d", "--no-deps", "--force-recreate"] + service_ids
+    try:
+        result = subprocess.run(
+            cmd, cwd=str(INSTALL_DIR),
+            capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT_START,
+        )
+        return (True, "") if result.returncode == 0 else (False, result.stderr[:500] or result.stdout[:500])
+    except subprocess.TimeoutExpired:
+        return False, f"Docker compose operation timed out ({SUBPROCESS_TIMEOUT_START}s)"
 
 
 def _parse_mem_value(s: str) -> float:
@@ -340,6 +399,8 @@ class AgentHandler(BaseHTTPRequestHandler):
         if self.path in ("/v1/extension/start", "/v1/extension/stop"):
             action = "start" if self.path.endswith("/start") else "stop"
             self._handle_extension(action)
+        elif self.path == "/v1/core/recreate":
+            self._handle_core_recreate()
         elif self.path == "/v1/extension/logs":
             self._handle_logs()
         elif self.path == "/v1/extension/setup-hook":
@@ -348,6 +409,47 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_service_logs()
         else:
             json_response(self, 404, {"error": "Not found"})
+
+    def _handle_core_recreate(self):
+        if not check_auth(self):
+            return
+        body = read_json_body(self)
+        if body is None:
+            return
+
+        requested = body.get("service_ids", [])
+        unique_service_ids = sorted(set(requested)) if isinstance(requested, list) else requested
+        ok, error = validate_core_recreate_ids(unique_service_ids)
+        if not ok:
+            json_response(self, 400, {"error": error})
+            return
+
+        locks = []
+        try:
+            for service_id in unique_service_ids:
+                lock = _service_locks[service_id]
+                if not lock.acquire(blocking=False):
+                    json_response(self, 409, {"error": f"Operation already in progress for {service_id}"})
+                    return
+                locks.append(lock)
+
+            logger.info("Recreating core services: %s", ", ".join(unique_service_ids))
+            ok, err = docker_compose_recreate(unique_service_ids)
+            if ok:
+                json_response(self, 200, {
+                    "status": "ok",
+                    "action": "recreate",
+                    "service_ids": unique_service_ids,
+                })
+            else:
+                json_response(self, 503 if "timed out" in err else 500, {"error": err})
+        except RuntimeError as exc:
+            json_response(self, 500, {"error": str(exc)})
+        except subprocess.CalledProcessError as exc:
+            json_response(self, 500, {"error": f"Compose resolution failed: {exc.stderr[:300]}"})
+        finally:
+            for lock in reversed(locks):
+                lock.release()
 
     def _handle_extension(self, action: str):
         if not check_auth(self):

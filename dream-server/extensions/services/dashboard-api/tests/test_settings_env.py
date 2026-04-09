@@ -126,6 +126,8 @@ def test_api_settings_env_preserves_existing_secret_when_blank(test_client, sett
     assert payload["values"]["OPENAI_API_KEY"] == ""
     assert payload["fields"]["OPENAI_API_KEY"]["hasValue"] is True
     assert payload["backupPath"].startswith("data/config-backups/.env.backup.")
+    assert payload["applyPlan"]["status"] == "ready"
+    assert payload["applyPlan"]["services"] == ["llama-server", "open-webui"]
 
 
 def test_api_settings_env_rejects_raw_mode(test_client, settings_env_fixture):
@@ -217,3 +219,59 @@ def test_api_settings_env_rejects_null_byte_in_value(test_client, settings_env_f
 
     assert response.status_code == 400
     assert "invalid characters" in response.json()["detail"]
+
+
+def test_api_settings_env_save_returns_llama_apply_plan(test_client, settings_env_fixture):
+    env_path = settings_env_fixture["env_path"]
+    env_path.write_text(
+        env_path.read_text(encoding="utf-8") + "CTX_SIZE=8192\n",
+        encoding="utf-8",
+    )
+
+    response = test_client.put(
+        "/api/settings/env",
+        headers=test_client.auth_headers,
+        json={
+            "mode": "form",
+            "values": {
+                "CTX_SIZE": "16384",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["applyPlan"]["status"] == "ready"
+    assert payload["applyPlan"]["services"] == ["llama-server"]
+    assert "llama-server" in payload["applyPlan"]["summary"]
+
+
+def test_api_settings_env_apply_calls_host_agent(test_client, monkeypatch):
+    captured = {}
+
+    def fake_call(service_ids):
+        captured["service_ids"] = service_ids
+        return {"status": "ok"}
+
+    monkeypatch.setattr("main._call_agent_core_recreate", fake_call)
+
+    response = test_client.post(
+        "/api/settings/env/apply",
+        headers=test_client.auth_headers,
+        json={"service_ids": ["llama-server"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert captured["service_ids"] == ["llama-server"]
+
+
+def test_api_settings_env_apply_rejects_disallowed_service(test_client):
+    response = test_client.post(
+        "/api/settings/env/apply",
+        headers=test_client.auth_headers,
+        json={"service_ids": ["dashboard-api"]},
+    )
+
+    assert response.status_code == 400
+    assert "not eligible" in response.json()["detail"]["message"].lower()

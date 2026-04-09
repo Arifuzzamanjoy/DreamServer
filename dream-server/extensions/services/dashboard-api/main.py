@@ -22,6 +22,8 @@ import re
 import socket
 import shutil
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -30,7 +32,10 @@ from fastapi import FastAPI, Depends, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 
 # --- Local modules ---
-from config import SERVICES, DATA_DIR, INSTALL_DIR, SIDEBAR_ICONS, MANIFEST_ERRORS
+from config import (
+    SERVICES, DATA_DIR, INSTALL_DIR, SIDEBAR_ICONS, MANIFEST_ERRORS,
+    AGENT_URL, DREAM_AGENT_KEY,
+)
 from models import (
     GPUInfo, ServiceStatus, DiskUsage, ModelInfo, BootstrapStatus,
     FullStatus, PortCheckRequest,
@@ -87,6 +92,35 @@ _ENV_COMMENTED_ASSIGNMENT_RE = re.compile(r"^\s*#\s*([A-Za-z_][A-Za-z0-9_]*)=(.*
 _SENSITIVE_ENV_KEY_RE = re.compile(
     r"(SECRET|TOKEN|PASSWORD|(?:^|_)PASS(?:$|_)|API_KEY|PRIVATE_KEY|ENCRYPTION_KEY|(?:^|_)SALT(?:$|_))"
 )
+_SETTINGS_APPLY_ALLOWED_SERVICES = frozenset({
+    "llama-server", "open-webui", "litellm", "langfuse", "n8n",
+    "openclaw", "opencode", "perplexica", "searxng", "qdrant",
+    "tts", "whisper", "embeddings", "token-spy", "comfyui",
+    "ape", "privacy-shield", "dreamforge",
+})
+_LLAMA_APPLY_KEYS = {
+    "CTX_SIZE", "MAX_CONTEXT", "GGUF_FILE", "GGUF_URL", "GGUF_SHA256",
+    "LLM_MODEL", "LLM_MODEL_SIZE_MB", "LLM_BACKEND", "N_GPU_LAYERS", "GPU_BACKEND",
+    "OLLAMA_PORT", "OLLAMA_URL", "LLM_API_URL", "MODEL_PROFILE",
+}
+_OPEN_WEBUI_APPLY_KEYS = {
+    "ENABLE_IMAGE_GENERATION", "IMAGE_GENERATION_ENGINE", "IMAGE_SIZE",
+    "IMAGE_STEPS", "IMAGE_GENERATION_MODEL", "COMFYUI_BASE_URL",
+    "COMFYUI_WORKFLOW", "COMFYUI_WORKFLOW_NODES", "AUDIO_STT_ENGINE",
+    "AUDIO_STT_OPENAI_API_BASE_URL", "AUDIO_STT_OPENAI_API_KEY",
+    "AUDIO_STT_MODEL", "AUDIO_TTS_ENGINE", "AUDIO_TTS_OPENAI_API_BASE_URL",
+    "AUDIO_TTS_OPENAI_API_KEY", "AUDIO_TTS_MODEL", "AUDIO_TTS_VOICE",
+}
+_TOKEN_SPY_APPLY_KEYS = {
+    "TOKEN_SPY_URL", "TOKEN_SPY_API_KEY",
+}
+_PRIVACY_SHIELD_APPLY_KEYS = {
+    "TARGET_API_URL", "PII_CACHE_ENABLED", "SHIELD_PORT",
+}
+_MANUAL_RESTART_KEYS = {
+    "DASHBOARD_API_KEY", "DREAM_AGENT_KEY", "DASHBOARD_PORT",
+    "DASHBOARD_API_PORT", "DREAM_AGENT_PORT", "DREAM_AGENT_HOST",
+}
 
 # --- Router imports ---
 from routers import workflows, features, setup, updates, agents, privacy, extensions, gpu as gpu_router, resources, voice
@@ -545,6 +579,100 @@ def _serialize_form_values(
     return serialized
 
 
+def _match_apply_service(key: str) -> Optional[str]:
+    if key in _LLAMA_APPLY_KEYS or key.startswith(("LLAMA_", "GGUF_")):
+        return "llama-server"
+    if (
+        key in _OPEN_WEBUI_APPLY_KEYS
+        or key.startswith("WEBUI_")
+        or key.startswith("OPENAI_API_")
+        or key.startswith("SEARXNG_")
+    ):
+        return "open-webui"
+    if key in _TOKEN_SPY_APPLY_KEYS or key.startswith("TOKEN_SPY_"):
+        return "token-spy"
+    if key in _PRIVACY_SHIELD_APPLY_KEYS or key.startswith("SHIELD_"):
+        return "privacy-shield"
+    if key.startswith("LITELLM_"):
+        return "litellm"
+    if key.startswith("LANGFUSE_"):
+        return "langfuse"
+    if key.startswith("N8N_"):
+        return "n8n"
+    if key.startswith("COMFYUI_"):
+        return "comfyui"
+    if key.startswith("WHISPER_"):
+        return "whisper"
+    if key.startswith("QDRANT_"):
+        return "qdrant"
+    if key.startswith("TTS_") or key.startswith("KOKORO_"):
+        return "tts"
+    if key.startswith("EMBEDDINGS_"):
+        return "embeddings"
+    if key.startswith("PERPLEXICA_"):
+        return "perplexica"
+    if key.startswith("APE_"):
+        return "ape"
+    return None
+
+
+def _build_apply_summary(services: list[str], manual_keys: list[str]) -> str:
+    if services and manual_keys:
+        return (
+            f"Saved changes can be applied now to {', '.join(services)}. "
+            f"Other keys still need a broader manual restart: {', '.join(manual_keys)}."
+        )
+    if services:
+        return f"Saved changes are ready to apply to {', '.join(services)}."
+    if manual_keys:
+        return (
+            "Saved changes were written to .env, but these keys still need a manual stack restart: "
+            + ", ".join(manual_keys)
+            + "."
+        )
+    return "No service recreation is required for the saved keys."
+
+
+def _compute_env_apply_plan(previous_values: dict[str, str], next_values: dict[str, str]) -> dict[str, Any]:
+    changed_keys = sorted(
+        key for key in set(previous_values) | set(next_values)
+        if previous_values.get(key, "") != next_values.get(key, "")
+    )
+    services: set[str] = set()
+    manual_keys: list[str] = []
+
+    for key in changed_keys:
+        service = _match_apply_service(key)
+        if service and service in _SETTINGS_APPLY_ALLOWED_SERVICES:
+            services.add(service)
+            continue
+        if key in _MANUAL_RESTART_KEYS or key.startswith("DREAM_AGENT_"):
+            manual_keys.append(key)
+            continue
+        if key not in {"TZ", "TIMEZONE"}:
+            manual_keys.append(key)
+
+    services_list = sorted(services)
+    manual_list = sorted(set(manual_keys))
+    if not changed_keys:
+        status = "none"
+    elif services_list and manual_list:
+        status = "partial"
+    elif services_list:
+        status = "ready"
+    else:
+        status = "manual"
+
+    return {
+        "status": status,
+        "changedKeys": changed_keys,
+        "services": services_list,
+        "manualKeys": manual_list,
+        "supported": bool(services_list),
+        "summary": _build_apply_summary(services_list, manual_list),
+    }
+
+
 def _render_env_from_values(values: dict[str, str]) -> str:
     example_path = _resolve_template_path(".env.example")
     seen: set[str] = set()
@@ -599,7 +727,36 @@ def _clear_settings_caches():
         _cache._store.pop(key, None)
 
 
-def _build_settings_env_payload(*, raw_text: Optional[str] = None, backup_path: Optional[str] = None) -> dict:
+def _call_agent_core_recreate(service_ids: list[str]) -> dict[str, Any]:
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {DREAM_AGENT_KEY}",
+    }
+    data = json.dumps({"service_ids": service_ids}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{AGENT_URL}/v1/core/recreate",
+        data=data,
+        headers=headers,
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=180) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _check_host_agent_available() -> bool:
+    try:
+        with urllib.request.urlopen(f"{AGENT_URL}/health", timeout=3) as response:
+            return response.status == 200
+    except Exception:
+        return False
+
+
+def _build_settings_env_payload(
+    *,
+    raw_text: Optional[str] = None,
+    backup_path: Optional[str] = None,
+    apply_plan: Optional[dict[str, Any]] = None,
+) -> dict:
     env_path = _resolve_runtime_env_path()
     if raw_text is None:
         try:
@@ -632,8 +789,10 @@ def _build_settings_env_payload(*, raw_text: Optional[str] = None, backup_path: 
         "sections": sections,
         "issues": issues,
         "saveHint": "Saving writes the .env file directly, keeps existing secret values when left blank, never sends stored secrets back to the browser, and stores a timestamped backup under data/config-backups first.",
-        "restartHint": "Most DreamServer services need a rebuild or restart before changed values fully take effect.",
+        "restartHint": "Some DreamServer services need a container recreate before changed values fully take effect. Use Apply changes when it becomes available after saving.",
         "backupPath": backup_path,
+        "applyPlan": apply_plan,
+        "agentAvailable": _check_host_agent_available(),
     }
 
 
@@ -683,7 +842,7 @@ def _write_text_atomic(path: Path, raw_text: str):
             pass
 
 
-def _prepare_env_save(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+def _prepare_env_save(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
     mode = payload.get("mode", "form")
     env_path = _resolve_runtime_env_path()
     current_values, _ = _read_env_map_from_path(env_path)
@@ -711,13 +870,14 @@ def _prepare_env_save(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]
                 "message": "Field is not editable from the dashboard. Only schema-backed fields and existing local overrides can be changed here.",
             }
             for key in invalid_keys
-        ]
+        ], _compute_env_apply_plan(current_values, current_values)
 
     normalized_values = _serialize_form_values(submitted_values, base_fields, current_values)
     merged_values = {**current_values, **normalized_values}
     merged_fields = _build_env_fields(schema_properties, required_keys, merged_values)
     issues = _validate_env_values(merged_values, merged_fields)
-    return _render_env_from_values(merged_values), issues
+    apply_plan = _compute_env_apply_plan(current_values, merged_values)
+    return _render_env_from_values(merged_values), issues, apply_plan
 
 # --- App ---
 
@@ -1198,7 +1358,7 @@ async def api_settings_env_save(
     api_key: str = Depends(verify_api_key),
 ):
     env_path = _resolve_runtime_env_path()
-    raw_text, issues = await asyncio.to_thread(_prepare_env_save, payload)
+    raw_text, issues, apply_plan = await asyncio.to_thread(_prepare_env_save, payload)
     if issues:
         raise HTTPException(
             status_code=400,
@@ -1239,9 +1399,64 @@ async def api_settings_env_save(
         ) from exc
 
     _clear_settings_caches()
-    result = await asyncio.to_thread(_build_settings_env_payload, raw_text=raw_text, backup_path=backup_relative)
+    result = await asyncio.to_thread(
+        _build_settings_env_payload,
+        raw_text=raw_text,
+        backup_path=backup_relative,
+        apply_plan=apply_plan,
+    )
     _cache.set("settings_env", result, _SETTINGS_ENV_CACHE_TTL)
     return result
+
+
+@app.post("/api/settings/env/apply")
+async def api_settings_env_apply(
+    payload: dict[str, Any] = Body(...),
+    api_key: str = Depends(verify_api_key),
+):
+    service_ids = payload.get("service_ids", [])
+    if not isinstance(service_ids, list) or not service_ids:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "service_ids must be a non-empty list."},
+        )
+
+    normalized: list[str] = []
+    for service_id in sorted(set(service_ids)):
+        if not isinstance(service_id, str) or service_id not in _SETTINGS_APPLY_ALLOWED_SERVICES:
+            raise HTTPException(
+                status_code=400,
+                detail={"message": f"Service is not eligible for dashboard-triggered apply: {service_id}"},
+            )
+        normalized.append(service_id)
+
+    try:
+        await asyncio.to_thread(_call_agent_core_recreate, normalized)
+        _clear_settings_caches()
+        return {
+            "success": True,
+            "services": normalized,
+            "message": f"Applied runtime changes to {', '.join(normalized)}.",
+        }
+    except urllib.error.HTTPError as exc:
+        detail = f"Host agent returned HTTP {exc.code}."
+        try:
+            payload = json.loads(exc.read().decode("utf-8"))
+            detail = payload.get("error", detail)
+        except Exception:
+            pass
+        raise HTTPException(status_code=503, detail={"message": detail}) from exc
+    except urllib.error.URLError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"message": "Dream host agent is not reachable. Start the host agent, then try Apply changes again."},
+        ) from exc
+    except OSError as exc:
+        logger.exception("Settings apply failed")
+        raise HTTPException(
+            status_code=500,
+            detail={"message": f"Could not apply runtime changes: {exc}"},
+        ) from exc
 
 
 # --- Service Health Polling ---
