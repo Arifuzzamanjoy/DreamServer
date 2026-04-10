@@ -1028,9 +1028,10 @@ class AgentHandler(BaseHTTPRequestHandler):
                 time.sleep(5)
 
             if healthy:
-                # Also restart LiteLLM so it picks up the new model name
-                subprocess.run(["docker", "restart", "dream-litellm"],
-                               capture_output=True, timeout=60)
+                # Restart dependent services so they pick up the new model
+                for svc in ["dream-litellm", "dream-dreamforge"]:
+                    subprocess.run(["docker", "restart", svc],
+                                   capture_output=True, timeout=60)
                 json_response(self, 200, {"status": "activated", "model_id": model_id})
             else:
                 # Rollback
