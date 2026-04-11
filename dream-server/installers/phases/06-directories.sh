@@ -39,7 +39,7 @@ else
     # Create directories
     dream_progress 38 "directories" "Creating directory structure"
     mkdir -p "$INSTALL_DIR"/{config,data,models}
-    mkdir -p "$INSTALL_DIR"/data/{open-webui,whisper,tts,n8n,qdrant,models,privacy-shield,dreamforge}
+    mkdir -p "$INSTALL_DIR"/data/{open-webui,whisper,tts,n8n,qdrant,models,privacy-shield,dreamforge,ape}
     mkdir -p "$INSTALL_DIR"/data/langfuse/{postgres,clickhouse,redis,minio}
     mkdir -p "$INSTALL_DIR"/config/{n8n,litellm,openclaw,searxng}
 
@@ -373,7 +373,15 @@ ENV_EOF
     # bootstrap-upgrade.sh regenerates this config when the model swaps.
     if [[ "$GPU_BACKEND" == "amd" ]]; then
         mkdir -p "$INSTALL_DIR/config/litellm"
-        _active_gguf="${BOOTSTRAP_GGUF_FILE:-$GGUF_FILE}"
+        # Source bootstrap-model.sh for BOOTSTRAP_GGUF_FILE and bootstrap_needed().
+        # Pure library (zero side effects), all deps available by phase 06.
+        # Phase 11 re-sources it harmlessly (idempotent).
+        [[ -f "$SCRIPT_DIR/installers/lib/bootstrap-model.sh" ]] && . "$SCRIPT_DIR/installers/lib/bootstrap-model.sh"
+        if type bootstrap_needed &>/dev/null && bootstrap_needed; then
+            _active_gguf="$BOOTSTRAP_GGUF_FILE"
+        else
+            _active_gguf="$GGUF_FILE"
+        fi
         cat > "$INSTALL_DIR/config/litellm/lemonade.yaml" << LITELLM_EOF
 model_list:
   - model_name: "*"
