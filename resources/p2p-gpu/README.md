@@ -1,7 +1,7 @@
 # P2P GPU Deploy — DreamServer on Peer-to-Peer GPU Marketplaces
 
 Deploy the full DreamServer AI stack on rented GPU instances from peer-to-peer
-compute marketplaces (Vast.ai, RunPod marketplace, Lambda, Salad, etc.).
+compute marketplaces (Vast.ai).
 
 One command. All 17+ services. Any NVIDIA/AMD GPU or CPU-only instance.
 
@@ -127,6 +127,4 @@ provider-specific fixes.
 
 ## Related
 
-- [DreamServer](../../dream-server/) — Core product
-- [Hardware Guide](../research/hardware/) — GPU buying guide
-- [Cookbooks](../cookbooks/) — Step-by-step deployment recipes
+
