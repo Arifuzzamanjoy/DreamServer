@@ -168,6 +168,8 @@ async def get_release_manifest():
                 headers=_GITHUB_HEADERS,
             )
         releases = resp.json()
+        if not isinstance(releases, list):
+            raise httpx.HTTPError(f"unexpected releases response: {type(releases).__name__}")
         return {
             "releases": [
                 {"version": r.get("tag_name", "").lstrip("v"), "date": r.get("published_at", ""), "title": r.get("name", ""), "changelog": r.get("body", "")[:500] + "..." if len(r.get("body", "")) > 500 else r.get("body", ""), "url": r.get("html_url", ""), "prerelease": r.get("prerelease", False)}
