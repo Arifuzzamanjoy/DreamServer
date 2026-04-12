@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# ============================================================================
+# Dream Server — Vast.ai Phase 00: Preflight Checks
+# ============================================================================
+# Part of: installers/vastai/phases/
+# Purpose: GPU detection (NVIDIA/AMD/CPU), disk/Docker/DNS validation,
+#          nvidia-container-toolkit setup
+#
+# Expects: MIN_DISK_GB, MIN_VRAM_MB, LOGFILE, log(), warn(), err(),
+#          find_dream_dir(), get_compose_cmd()
+# Provides: GPU_BACKEND, GPU_NAME, GPU_VRAM, GPU_COUNT, CPU_COUNT,
+#           DISK_AVAIL_GB (all exported for later phases)
+#
+# Fixes covered: #12 (NVIDIA toolkit), #13 (disk space), #14 (compose v1),
+#                #17 (DNS), #27 (AMD GPU), #28 (CPU-only fallback)
+#
+# SPDX-License-Identifier: Apache-2.0
+# ============================================================================
+
+set -euo pipefail
+
+step "Phase 0/12: Preflight checks"
+
+# Must be root
+if [[ $EUID -ne 0 ]]; then
+  err "This script must be run as root. Run: sudo bash ${SCRIPT_NAME}"
+  exit 1
+fi
+
+# ── GPU detection ───────────────────────────────────────────────────────────
+GPU_BACKEND="cpu"
+GPU_NAME="none"
+GPU_VRAM="0"
+GPU_COUNT=0
+
+if command -v nvidia-smi &>/dev/null && nvidia-smi --query-gpu=name --format=csv,noheader &>/dev/null; then
+  GPU_BACKEND="nvidia"
+  GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1 | xargs)
+  GPU_VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1 | xargs)
+  GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
+  log "NVIDIA GPU: ${GPU_NAME} × ${GPU_COUNT} (${GPU_VRAM} MiB VRAM each)"
+
+elif command -v rocm-smi &>/dev/null || [[ -e /dev/kfd ]]; then
+  GPU_BACKEND="amd"
+  GPU_NAME=$(rocm-smi --showproductname 2>&1 | grep -oP 'Card series:\s*\K.*' | head -1 || echo "AMD GPU")
+  GPU_VRAM=$(rocm-smi --showmeminfo vram 2>&1 | grep -oP 'Total Memory \(B\):\s*\K[0-9]+' | head -1 || echo "0")
+  [[ "${GPU_VRAM:-0}" -gt 1000000 ]] && GPU_VRAM=$(( GPU_VRAM / 1048576 ))
+  GPU_COUNT=$(rocm-smi --showid 2>&1 | grep -c 'GPU\[' || echo 1)
+  log "AMD GPU: ${GPU_NAME} × ${GPU_COUNT} (${GPU_VRAM} MiB VRAM)"
+
+else
+  warn "No GPU detected — running in CPU-only mode (slower but functional)"
+fi
+
+CPU_COUNT=$(nproc)
+DISK_AVAIL_GB=$(df -BG --output=avail / 2>&1 | tail -1 | tr -dc '0-9')
+log "GPU backend: ${GPU_BACKEND} | CPUs: ${CPU_COUNT} | Disk: ${DISK_AVAIL_GB} GB"
+
+# VRAM check
+if [[ "$GPU_BACKEND" != "cpu" && "${GPU_VRAM:-0}" -lt "$MIN_VRAM_MB" ]]; then
+  warn "GPU VRAM (${GPU_VRAM} MiB) below recommended (${MIN_VRAM_MB} MiB) — small models only"
+fi
+
+# ── Disk space ──────────────────────────────────────────────────────────────
+_check_disk_space() {
+  local existing_install
+  existing_install=$(find_dream_dir 2>&1 || echo "")
+  if [[ "${DISK_AVAIL_GB:-0}" -lt "$MIN_DISK_GB" ]]; then
+    if [[ -n "$existing_install" && -f "${existing_install}/.env" ]]; then
+      warn "Disk (${DISK_AVAIL_GB} GB) below ${MIN_DISK_GB} GB, but DreamServer already installed"
+    else
+      err "Disk space (${DISK_AVAIL_GB} GB) below minimum (${MIN_DISK_GB} GB)."
+      err "DreamServer needs 40+ GB. Create a Vast.ai instance with more disk."
+      exit 1
+    fi
+  fi
+}
+_check_disk_space
+
+# ── Docker ──────────────────────────────────────────────────────────────────
+if ! command -v docker &>/dev/null; then
+  err "Docker not found. Use a Vast.ai image with Docker pre-installed."
+  exit 1
+fi
+
+COMPOSE_CMD=$(get_compose_cmd)
+log "Docker Compose: ${COMPOSE_CMD} ($(${COMPOSE_CMD} version --short 2>&1 || echo 'unknown'))"
+
+# ── GPU passthrough verification ────────────────────────────────────────────
+_verify_nvidia_passthrough() {
+  if ! docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi &>/dev/null; then
+    warn "NVIDIA GPU passthrough test failed — checking toolkit..."
+    if ! dpkg -l nvidia-container-toolkit &>/dev/null; then
+      warn "nvidia-container-toolkit not installed — attempting install"
+      curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+        | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg 2>>"$LOGFILE" \
+        || warn "gpg key import failed (non-fatal)"
+      curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+        | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+        | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null
+      apt-get update -qq 2>>"$LOGFILE" && apt-get install -y -qq nvidia-container-toolkit 2>>"$LOGFILE"
+      nvidia-ctk runtime configure --runtime=docker 2>>"$LOGFILE" || warn "nvidia-ctk configure failed (non-fatal)"
+      systemctl restart docker 2>>"$LOGFILE" || service docker restart 2>>"$LOGFILE" \
+        || warn "docker restart failed (non-fatal)"
+      log "nvidia-container-toolkit installed and configured"
+    fi
+  else
+    log "NVIDIA Docker passthrough verified"
+  fi
+}
+
+_verify_amd_passthrough() {
+  [[ ! -e /dev/kfd ]] && warn "/dev/kfd not found — AMD GPU may not be container-accessible"
+  [[ ! -d /dev/dri ]] && warn "/dev/dri not found — AMD GPU rendering may not work"
+  if docker run --rm --device=/dev/kfd --device=/dev/dri rocm/rocm-terminal:latest rocm-smi &>/dev/null; then
+    log "AMD ROCm Docker passthrough verified"
+  else
+    warn "AMD ROCm Docker test failed — GPU may need driver configuration"
+  fi
+}
+
+[[ "$GPU_BACKEND" == "nvidia" ]] && _verify_nvidia_passthrough
+[[ "$GPU_BACKEND" == "amd" ]] && _verify_amd_passthrough
+
+# ── DNS fix ─────────────────────────────────────────────────────────────────
+if ! host github.com &>/dev/null && ! nslookup github.com &>/dev/null; then
+  if ! curl -sf --max-time 5 https://github.com > /dev/null; then
+    warn "DNS resolution broken — adding Google DNS as fallback"
+    if ! grep -q '8.8.8.8' /etc/resolv.conf; then
+      echo "nameserver 8.8.8.8" >> /etc/resolv.conf
+      echo "nameserver 1.1.1.1" >> /etc/resolv.conf
+    fi
+  fi
+fi
+
+# ── /tmp permissions fix ────────────────────────────────────────────────────
+if [[ "$(stat -c '%a' /tmp)" != "1777" ]]; then
+  chown root:root /tmp
+  chmod 1777 /tmp
+  log "/tmp permissions fixed (was broken)"
+else
+  log "/tmp permissions OK"
+fi
+
+log "All preflight checks passed"

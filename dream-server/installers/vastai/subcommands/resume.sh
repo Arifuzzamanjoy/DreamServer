@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# ============================================================================
+# Dream Server — Vast.ai Subcommand: resume
+# ============================================================================
+# Part of: installers/vastai/subcommands/
+# Purpose: Quick restart — re-apply fixes and start services
+#
+# Expects: log(), warn(), err(), find_dream_dir(), detect_gpu_backend(),
+#          apply_post_install_fixes(), start_services(), print_access_info()
+# Provides: Running DreamServer with latest fixes applied
+#
+# SPDX-License-Identifier: Apache-2.0
+# ============================================================================
+
+set -euo pipefail
+
+cmd_resume() {
+  step "Resuming DreamServer"
+  local ds_dir
+  ds_dir=$(find_dream_dir) || { err "DreamServer directory not found"; exit 1; }
+
+  cd "$ds_dir"
+  local gpu_backend
+  gpu_backend=$(detect_gpu_backend)
+
+  apply_post_install_fixes "$ds_dir" "$gpu_backend"
+  start_services "$ds_dir"
+  print_access_info "$ds_dir"
+}

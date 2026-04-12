@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# ============================================================================
+# Dream Server — Vast.ai Subcommand: fix
+# ============================================================================
+# Part of: installers/vastai/subcommands/
+# Purpose: Apply fixes without full reinstall (port rebind, network fix,
+#          CPU cap, permissions, proxy restart)
+#
+# Expects: log(), warn(), err(), find_dream_dir(), detect_gpu_backend(),
+#          env_get(), expose_ports_for_vastai(), apply_post_install_fixes(),
+#          start_services(), setup_reverse_proxy(), print_access_info(),
+#          get_compose_cmd()
+# Provides: All runtime fixes applied and services restarted
+#
+# SPDX-License-Identifier: Apache-2.0
+# ============================================================================
+
+set -euo pipefail
+
+cmd_fix() {
+  step "Applying fixes (no reinstall)"
+  local ds_dir
+  ds_dir=$(find_dream_dir) || { err "DreamServer directory not found. Run full install first."; exit 1; }
+
+  cd "$ds_dir"
+  local env_file="${ds_dir}/.env"
+  local gpu_backend
+  gpu_backend=$(detect_gpu_backend)
+
+  expose_ports_for_vastai "$ds_dir"
+
+  # Fix stale Docker network
+  if docker network inspect dream-network >/dev/null 2>&1; then
+    local net_label
+    net_label=$(docker network inspect dream-network \
+      --format '{{index .Labels "com.docker.compose.network"}}' 2>&1 || echo "")
+    if [[ -z "$net_label" ]]; then
+      log "Fixing stale dream-network..."
+      local compose_cmd
+      compose_cmd=$(get_compose_cmd)
+      $compose_cmd down 2>&1 || warn "compose down failed (non-fatal)"
+      for cid in $(docker network inspect dream-network \
+        -f '{{range .Containers}}{{.Name}} {{end}}' 2>&1 || echo ""); do
+        docker network disconnect -f dream-network "$cid" || warn "disconnect ${cid} failed (non-fatal)"
+      done
+      docker network rm dream-network || warn "network rm failed (non-fatal)"
+      log "Stale network removed — compose will recreate on next start"
+    fi
+  fi
+
+  apply_post_install_fixes "$ds_dir" "$gpu_backend"
+
+  log "Fixes applied. Restarting services..."
+  start_services "$ds_dir"
+
+  local proxy_port
+  proxy_port=$(env_get "$env_file" "REVERSE_PROXY_PORT")
+  if [[ -n "$proxy_port" ]]; then
+    setup_reverse_proxy "$ds_dir" "$proxy_port" || warn "Reverse proxy unavailable (non-fatal)"
+  fi
+
+  print_access_info "$ds_dir"
+  log "Fix complete!"
+}
