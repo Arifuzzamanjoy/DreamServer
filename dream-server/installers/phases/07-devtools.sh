@@ -154,7 +154,7 @@ OPENCODE_EOF
         else
             # Reinstall: update API key and URL in existing config (key may have changed)
             _sed_i "s|\"apiKey\":.*|\"apiKey\": \"${_opencode_key}\"|" "$OPENCODE_CONFIG_DIR/opencode.json"
-            _sed_i "s|\"baseURL\":.*|\"baseURL\": \"${_opencode_url}\"|" "$OPENCODE_CONFIG_DIR/opencode.json"
+            _sed_i "s|\"baseURL\":.*|\"baseURL\": \"${_opencode_url}\",|" "$OPENCODE_CONFIG_DIR/opencode.json"
             ai_ok "OpenCode config updated (API key and URL refreshed)"
         fi
         # OpenCode reads config.json, not opencode.json — always sync
