@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Dream Server — Vast.ai Service Discovery & Management
+# DreamServer — P2P GPU Service Discovery & Management
 # ============================================================================
-# Part of: installers/vastai/lib/
+# Part of: resources/p2p-gpu/lib/
 # Purpose: Manifest-driven service discovery, port enumeration, compose
 #          command detection, Docker image pre-pull, service startup
 #
@@ -15,6 +15,7 @@
 # Modder notes:
 #   Requires python3 + PyYAML (installed in Phase 1). Functions gracefully
 #   return empty when python3/PyYAML is unavailable.
+#   [FIX: python-except] Python catches only specific exceptions with logging.
 #
 # SPDX-License-Identifier: Apache-2.0
 # ============================================================================
@@ -34,8 +35,10 @@ try:
         print(' '.join(str(v) for v in val))
     else:
         print(val)
-except (yaml.YAMLError, OSError, KeyError, TypeError):
-    pass
+except yaml.YAMLError as e:
+    print(f'YAML parse error in {sys.argv[1]}: {e}', file=sys.stderr)
+except OSError as e:
+    print(f'File read error {sys.argv[1]}: {e}', file=sys.stderr)
 " "$manifest" "$field" || warn "manifest field read failed for ${manifest}:${field} (non-fatal)"
 }
 
@@ -67,8 +70,10 @@ try:
         startup = 'heavy'
     if sid:
         print(f'{sid}|{port_env}|{port_def}|{name}|{cat}|{proxy}|{startup}|{cname}')
-except (yaml.YAMLError, OSError, KeyError, TypeError):
-    pass
+except yaml.YAMLError as e:
+    print(f'YAML parse error in {sys.argv[1]}: {e}', file=sys.stderr)
+except OSError as e:
+    print(f'File read error {sys.argv[1]}: {e}', file=sys.stderr)
 " "$manifest" || warn "service discovery failed for ${manifest} (non-fatal)"
     done
   done

@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Subcommand: resume
 # ============================================================================
-# Part of: installers/vastai/subcommands/
+# Part of: p2p-gpu/subcommands/
 # Purpose: Quick restart — re-apply fixes and start services
 #
 # Expects: log(), warn(), err(), find_dream_dir(), detect_gpu_backend(),

@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Phase 12: Summary
 # ============================================================================
-# Part of: installers/vastai/phases/
+# Part of: p2p-gpu/phases/
 # Purpose: Print access info, connection methods, final success message
 #
 # Expects: DS_DIR, LOGFILE, log(), print_access_info(), _ts()

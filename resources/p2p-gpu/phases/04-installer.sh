@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Phase 04: Run Upstream Installer
 # ============================================================================
-# Part of: installers/vastai/phases/
+# Part of: p2p-gpu/phases/
 # Purpose: Execute DreamServer's install.sh with timeout protection
 #
 # Expects: REPO_DIR, DREAM_USER, INSTALLER_TIMEOUT, log(), warn(), err()
@@ -38,7 +38,8 @@ while kill -0 "$installer_pid" 2>&1; do
     kill -TERM "$installer_pid" || warn "could not TERM installer (non-fatal)"
     sleep 2
     kill -9 "$installer_pid" || warn "could not KILL installer (non-fatal)"
-    pkill -f "Linking.*\[.*s\]" || warn "no hanging wait processes found (non-fatal)"
+    # Child processes of the installer should die with their parent.
+    # No pkill -f needed — TERM/KILL on the parent suffices.
     install_exit=124
     break
   fi

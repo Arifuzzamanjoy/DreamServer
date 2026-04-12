@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Dream Server — Vast.ai Phase 00: Preflight Checks
+# DreamServer — P2P GPU Phase 00: Preflight Checks
 # ============================================================================
-# Part of: installers/vastai/phases/
+# Part of: resources/p2p-gpu/phases/
 # Purpose: GPU detection (NVIDIA/AMD/CPU), disk/Docker/DNS validation,
 #          nvidia-container-toolkit setup
 #
 # Expects: MIN_DISK_GB, MIN_VRAM_MB, LOGFILE, log(), warn(), err(),
-#          find_dream_dir(), get_compose_cmd()
+#          find_dream_dir(), get_compose_cmd(), detect_gpu()
 # Provides: GPU_BACKEND, GPU_NAME, GPU_VRAM, GPU_COUNT, CPU_COUNT,
 #           DISK_AVAIL_GB (all exported for later phases)
 #
@@ -27,30 +27,14 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-# ── GPU detection ───────────────────────────────────────────────────────────
-GPU_BACKEND="cpu"
-GPU_NAME="none"
-GPU_VRAM="0"
-GPU_COUNT=0
+# ── [FIX: gpu-dedup] Use single detect_gpu() function ──────────────────────
+detect_gpu
 
-if command -v nvidia-smi &>/dev/null && nvidia-smi --query-gpu=name --format=csv,noheader &>/dev/null; then
-  GPU_BACKEND="nvidia"
-  GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1 | xargs)
-  GPU_VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1 | xargs)
-  GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
-  log "NVIDIA GPU: ${GPU_NAME} × ${GPU_COUNT} (${GPU_VRAM} MiB VRAM each)"
-
-elif command -v rocm-smi &>/dev/null || [[ -e /dev/kfd ]]; then
-  GPU_BACKEND="amd"
-  GPU_NAME=$(rocm-smi --showproductname 2>&1 | grep -oP 'Card series:\s*\K.*' | head -1 || echo "AMD GPU")
-  GPU_VRAM=$(rocm-smi --showmeminfo vram 2>&1 | grep -oP 'Total Memory \(B\):\s*\K[0-9]+' | head -1 || echo "0")
-  [[ "${GPU_VRAM:-0}" -gt 1000000 ]] && GPU_VRAM=$(( GPU_VRAM / 1048576 ))
-  GPU_COUNT=$(rocm-smi --showid 2>&1 | grep -c 'GPU\[' || echo 1)
-  log "AMD GPU: ${GPU_NAME} × ${GPU_COUNT} (${GPU_VRAM} MiB VRAM)"
-
-else
-  warn "No GPU detected — running in CPU-only mode (slower but functional)"
-fi
+case "$GPU_BACKEND" in
+  nvidia) log "NVIDIA GPU: ${GPU_NAME} × ${GPU_COUNT} (${GPU_VRAM} MiB VRAM each)" ;;
+  amd)    log "AMD GPU: ${GPU_NAME} × ${GPU_COUNT} (${GPU_VRAM} MiB VRAM)" ;;
+  cpu)    warn "No GPU detected — running in CPU-only mode (slower but functional)" ;;
+esac
 
 CPU_COUNT=$(nproc)
 DISK_AVAIL_GB=$(df -BG --output=avail / 2>&1 | tail -1 | tr -dc '0-9')

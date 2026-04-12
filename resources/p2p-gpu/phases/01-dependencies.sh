@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Phase 01: System Dependencies
 # ============================================================================
-# Part of: installers/vastai/phases/
+# Part of: p2p-gpu/phases/
 # Purpose: Install missing packages (git, curl, jq, aria2, acl, python3-yaml)
 #
 # Expects: LOGFILE, log()

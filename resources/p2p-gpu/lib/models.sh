@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Dream Server — Vast.ai Model Management
+# DreamServer — P2P GPU Model Management
 # ============================================================================
-# Part of: installers/vastai/lib/
+# Part of: resources/p2p-gpu/lib/
 # Purpose: Model URL resolution, aria2c-optimized downloads, model swap
-#          watcher for background upgrades
+#          watcher for background upgrades, disk-space gating
 #
-# Expects: LOGFILE, log(), warn(), env_get(), env_set()
+# Expects: LOGFILE, PIDFILE_DIR, log(), warn(), env_get(), env_set()
 # Provides: resolve_model_url(), optimize_model_download(),
-#           create_model_swap_watcher()
+#           create_model_swap_watcher(), check_disk_for_download()
 #
 # Modder notes:
 #   resolve_model_url tries 4 strategies in priority order:
@@ -16,11 +16,58 @@
 #     3. backend JSON configs  4. HuggingFace org probing
 #   create_model_swap_watcher generates a self-contained script that polls
 #   for aria2c completion and hot-swaps the active model.
+#   PIDs are tracked in PIDFILE_DIR for safe cleanup (no pkill -f).
 #
 # SPDX-License-Identifier: Apache-2.0
 # ============================================================================
 
 set -euo pipefail
+
+# ── [FIX: disk-check] Verify sufficient disk before starting a download ─────
+# Returns 0 if enough space, 1 if insufficient.
+# Args: $1 = directory to check, $2 = minimum GB required (default: 5)
+check_disk_for_download() {
+  local target_dir="$1"
+  local min_gb="${2:-5}"
+  local avail_gb
+  avail_gb=$(df -BG --output=avail "$target_dir" 2>/dev/null | tail -1 | tr -dc '0-9')
+  if [[ "${avail_gb:-0}" -lt "$min_gb" ]]; then
+    warn "Insufficient disk space: ${avail_gb}GB available, ${min_gb}GB needed in ${target_dir}"
+    return 1
+  fi
+  return 0
+}
+
+# ── [FIX: pkill] PID-file based process management ─────────────────────────
+# Store a background process PID so we can stop it safely later.
+_store_pid() {
+  local name="$1" pid="$2"
+  mkdir -p "$PIDFILE_DIR" 2>/dev/null || true
+  echo "$pid" > "${PIDFILE_DIR}/${name}.pid"
+}
+
+# Kill a previously stored PID by name. Safe — only kills the exact PID.
+_kill_stored_pid() {
+  local name="$1"
+  local pidfile="${PIDFILE_DIR}/${name}.pid"
+  [[ ! -f "$pidfile" ]] && return 0
+  local pid
+  pid=$(cat "$pidfile" 2>/dev/null || echo "")
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || warn "Could not kill ${name} (PID ${pid})"
+  fi
+  rm -f "$pidfile"
+}
+
+# Check if a stored PID is still running.
+_is_pid_running() {
+  local name="$1"
+  local pidfile="${PIDFILE_DIR}/${name}.pid"
+  [[ ! -f "$pidfile" ]] && return 1
+  local pid
+  pid=$(cat "$pidfile" 2>/dev/null || echo "")
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
 
 # Resolve download URL for a model filename
 resolve_model_url() {
@@ -89,7 +136,7 @@ optimize_model_download() {
   part_files=$(find "${data_dir}/models/" -name "*.gguf.part" -type f 2>&1 || echo "")
 
   if [[ -z "$part_files" ]]; then
-    if pgrep -f "aria2c.*gguf" > /dev/null 2>&1; then
+    if _is_pid_running "aria2c-model"; then
       log "aria2c download already running"
       return 0
     fi
@@ -103,9 +150,17 @@ optimize_model_download() {
   part_size_mb=$(( $(stat -c%s "$part_file" || echo 0) / 1048576 ))
 
   warn "Incomplete download: ${part_name} (${part_size_mb} MB so far)"
-  pkill -f "curl.*${part_name}" || warn "no curl to kill for ${part_name} (non-fatal)"
-  pkill -f "wget.*${part_name}" || warn "no wget to kill for ${part_name} (non-fatal)"
+
+  # [FIX: pkill] Kill only known PIDs, not by pattern
+  _kill_stored_pid "curl-model"
+  _kill_stored_pid "wget-model"
   sleep 2
+
+  # [FIX: disk-check] Verify at least 5GB free before resuming
+  if ! check_disk_for_download "${data_dir}/models" 5; then
+    warn "Skipping model download — insufficient disk space"
+    return 0
+  fi
 
   gguf_url=$(resolve_model_url "$ds_dir" "$part_name") || {
     warn "Could not resolve download URL for ${part_name} — leaving original download"
@@ -134,6 +189,7 @@ optimize_model_download() {
     >> "${ds_dir}/logs/aria2c-download.log" 2>&1 &
 
   local aria_pid=$!
+  _store_pid "aria2c-model" "$aria_pid"
   log "aria2c started (PID: ${aria_pid})"
   create_model_swap_watcher "$ds_dir" "$part_name"
 }
@@ -160,11 +216,8 @@ swap_model() {
   old_model=$(grep '^GGUF_FILE=' "$ENV_FILE" | cut -d= -f2 | tr -d '"' || echo "")
   [[ "$new_model" == "$old_model" ]] && return 0
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] Swapping: ${old_model} -> ${new_model}"
-  local tmp_env
-  tmp_env=$(mktemp)
-  sed "s|^GGUF_FILE=.*|GGUF_FILE=${new_model}|" "$ENV_FILE" > "$tmp_env"
-  cat "$tmp_env" > "$ENV_FILE"
-  rm -f "$tmp_env"
+  # [FIX: tmpfile-race] Use sed -i to avoid world-readable temp file with secrets
+  sed -i "s|^GGUF_FILE=.*|GGUF_FILE=${new_model}|" "$ENV_FILE"
   docker restart dream-llama-server || warn "llama-server restart failed (non-fatal)"
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] Swapped to ${new_model}"
 }
@@ -184,5 +237,7 @@ WATCHER_EOF
 
   chmod +x "$watcher_script"
   nohup "$watcher_script" >> "${ds_dir}/logs/model-swap.log" 2>&1 &
-  log "Model swap watcher started (PID: $!)"
+  local watcher_pid=$!
+  _store_pid "model-swap-watcher" "$watcher_pid"
+  log "Model swap watcher started (PID: ${watcher_pid})"
 }

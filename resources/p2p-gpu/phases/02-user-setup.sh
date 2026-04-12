@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Phase 02: User Setup
 # ============================================================================
-# Part of: installers/vastai/phases/
+# Part of: p2p-gpu/phases/
 # Purpose: Create dream user, configure sudo/docker group, copy SSH keys
 #
 # Expects: DREAM_USER, DREAM_HOME, log(), warn()

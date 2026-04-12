@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Phase 08: Vast.ai Quirks
 # ============================================================================
-# Part of: installers/vastai/phases/
+# Part of: p2p-gpu/phases/
 # Purpose: No-systemd workaround, /dev/shm remount, OpenCode crash-loop fix
 #
 # Expects: DS_DIR, DREAM_USER, log(), warn()

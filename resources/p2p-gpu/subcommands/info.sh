@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Subcommand: info
 # ============================================================================
-# Part of: installers/vastai/subcommands/
+# Part of: p2p-gpu/subcommands/
 # Purpose: Print connection details only (no modifications)
 #
 # Expects: err(), find_dream_dir(), print_access_info()

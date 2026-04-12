@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Networking & Access Layer
 # ============================================================================
-# Part of: installers/vastai/lib/
+# Part of: p2p-gpu/lib/
 # Purpose: Port exposure, Caddy reverse proxy, health page, Cloudflare
 #          tunnel, SSH tunnel script, access info display
 #
@@ -243,9 +243,12 @@ setup_cloudflare_tunnel() {
   proxy_port="${proxy_port:-3000}"
 
   mkdir -p "${ds_dir}/logs"
-  nohup cloudflared tunnel --no-autoupdate run --token "$cf_token" \
+  # [FIX: cf-token] Pass token via env var, not CLI arg (hidden from ps aux)
+  TUNNEL_TOKEN="$cf_token" nohup cloudflared tunnel --no-autoupdate run --token-from-env TUNNEL_TOKEN \
     >> "${ds_dir}/logs/cloudflared.log" 2>&1 &
-  log "Cloudflare Tunnel started (PID: $!) — HTTPS access active"
+  local cf_pid=$!
+  _store_pid "cloudflared" "$cf_pid" 2>/dev/null || true
+  log "Cloudflare Tunnel started (PID: ${cf_pid}) — HTTPS access active"
 }
 
 # Generate auto-reconnecting SSH tunnel script

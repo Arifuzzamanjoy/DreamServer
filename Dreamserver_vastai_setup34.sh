@@ -1,5 +1,20 @@
 #!/usr/bin/env bash
 #=============================================================================
+# DEPRECATED: This monolithic script has been refactored into:
+#   resources/p2p-gpu/setup.sh
+#
+# The modular version is functionally identical but adds:
+#   - --fix, --info subcommands
+#   - Smart re-run detection
+#   - PID-file based process management (no pkill -f)
+#   - Protected .env files (0600 mode)
+#   - Disk-space gating before downloads
+#   - Narrower Python exception handling
+#   - Documented permission rationale
+#
+# This file is kept for reference. Use the modular version for new deployments.
+#=============================================================================
+#
 # DreamServer — Vast.ai One-Shot Setup Script (v4.0)
 #
 # Target:  Vast.ai GPU instance (NVIDIA, any SKU)

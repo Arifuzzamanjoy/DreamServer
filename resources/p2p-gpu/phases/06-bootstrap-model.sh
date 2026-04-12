@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Dream Server — Vast.ai Phase 06: Bootstrap Model
+# DreamServer — P2P GPU Phase 06: Bootstrap Model
 # ============================================================================
-# Part of: installers/vastai/phases/
+# Part of: resources/p2p-gpu/phases/
 # Purpose: Ensure a usable GGUF model file exists so llama-server can start
 #
 # Expects: DS_DIR, GPU_BACKEND, log(), warn(), env_get(), env_set(),
-#          fix_known_uid_requirements(), apply_data_acl()
+#          fix_known_uid_requirements(), apply_data_acl(),
+#          check_disk_for_download()
 # Provides: Verified GGUF_FILE in .env pointing to a real model
 #
 # Fixes covered: #19 (bootstrap model missing), #20 (llama-server hang)
@@ -59,23 +60,39 @@ fi
 
 # Last resort: download small bootstrap model
 if [[ "$model_ready" != "true" ]]; then
-  warn "No usable model found — downloading bootstrap model..."
-  bootstrap_url="https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
-  bootstrap_name="Qwen3-0.6B-Q4_K_M.gguf"
-
-  if command -v aria2c &>/dev/null; then
-    aria2c -x 8 -s 8 -k 5M --file-allocation=none --console-log-level=notice \
-      -d "$models_dir" -o "$bootstrap_name" "$bootstrap_url" 2>&1 | tail -5
+  # [FIX: disk-check] Verify disk space before downloading
+  if ! check_disk_for_download "$models_dir" 2; then
+    err "Cannot download bootstrap model — insufficient disk space"
+    warn "Continuing without a model — llama-server will not start"
   else
-    curl -L --progress-bar -o "${models_dir}/${bootstrap_name}" "$bootstrap_url"
-  fi
+    warn "No usable model found — downloading bootstrap model..."
+    bootstrap_url="https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
+    bootstrap_name="Qwen3-0.6B-Q4_K_M.gguf"
 
-  if [[ -f "${models_dir}/${bootstrap_name}" ]]; then
-    env_set "$env_file" "GGUF_FILE" "$bootstrap_name"
-    log "Bootstrap model downloaded: ${bootstrap_name}"
-  else
-    err "Failed to download bootstrap model — llama-server will not start"
-    warn "Continuing anyway — other services may still work"
+    if command -v aria2c &>/dev/null; then
+      aria2c -x 8 -s 8 -k 5M --file-allocation=none --console-log-level=notice \
+        --check-integrity=true \
+        -d "$models_dir" -o "$bootstrap_name" "$bootstrap_url" 2>&1 | tail -5
+    else
+      curl -L --fail --progress-bar -o "${models_dir}/${bootstrap_name}" "$bootstrap_url"
+    fi
+
+    # [FIX: bootstrap-size] Validate downloaded file size (>50MB for smallest GGUF)
+    if [[ -f "${models_dir}/${bootstrap_name}" ]]; then
+      local dl_size
+      dl_size=$(stat -c%s "${models_dir}/${bootstrap_name}" || echo 0)
+      if [[ "$dl_size" -gt 50000000 ]]; then
+        env_set "$env_file" "GGUF_FILE" "$bootstrap_name"
+        log "Bootstrap model downloaded: ${bootstrap_name} ($(( dl_size / 1048576 )) MB)"
+      else
+        err "Downloaded model too small (${dl_size} bytes) — likely incomplete or corrupt"
+        rm -f "${models_dir}/${bootstrap_name}"
+        warn "Continuing without a model — llama-server will not start"
+      fi
+    else
+      err "Failed to download bootstrap model — llama-server will not start"
+      warn "Continuing anyway — other services may still work"
+    fi
   fi
 fi
 

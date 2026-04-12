@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Dream Server — Vast.ai Subcommand: teardown
+# DreamServer — P2P GPU Subcommand: teardown
 # ============================================================================
-# Part of: installers/vastai/subcommands/
+# Part of: resources/p2p-gpu/subcommands/
 # Purpose: Stop all containers and background processes to halt billing
 #
 # Expects: log(), warn(), err(), find_dream_dir(), get_compose_cmd(),
-#          SCRIPT_NAME
+#          _kill_stored_pid(), PIDFILE_DIR, SCRIPT_NAME
 # Provides: Clean shutdown of all DreamServer services
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -27,11 +27,13 @@ cmd_teardown() {
     $compose_cmd down --remove-orphans 2>&1 || warn "Compose down had warnings (non-fatal)"
   fi
 
-  pkill -f "aria2c.*gguf" || warn "no aria2c process to kill (non-fatal)"
-  pkill -f "model-swap-on-complete" || warn "no model-swap watcher to kill (non-fatal)"
+  # [FIX: pkill] Use PID-file based cleanup instead of pkill -f
+  _kill_stored_pid "aria2c-model"
+  _kill_stored_pid "model-swap-watcher"
+  _kill_stored_pid "cloudflared"
 
   log "All services stopped. Storage billing continues."
-  log "To fully stop billing: delete the instance from Vast.ai console."
+  log "To fully stop billing: delete the instance from the provider console."
   echo ""
   echo -e "${BOLD}Data preserved at:${NC} ${ds_dir}/data/"
   echo -e "${BOLD}To resume:${NC} bash ${SCRIPT_NAME} --resume"

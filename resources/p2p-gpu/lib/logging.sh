@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Logging & Lifecycle
 # ============================================================================
-# Part of: installers/vastai/lib/
+# Part of: p2p-gpu/lib/
 # Purpose: Log/warn/err/step functions, timestamp helper, cleanup trap,
 #          flock-based lock acquisition
 #

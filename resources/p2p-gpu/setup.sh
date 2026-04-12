@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Dream Server — Vast.ai Setup Orchestrator
+# DreamServer — P2P GPU Deploy Orchestrator
 # ============================================================================
-# Target:  Vast.ai GPU instance (NVIDIA, AMD, or CPU-only)
-# OS:      Ubuntu 22.04 / 24.04 (Vast.ai default images)
+# Deploy DreamServer on peer-to-peer GPU marketplaces (Vast.ai, RunPod, etc.)
+#
+# Target:  Remote GPU instance (NVIDIA, AMD, or CPU-only)
+# OS:      Ubuntu 22.04 / 24.04
 # License: Apache-2.0 (same as DreamServer)
 #
 # Usage:

@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Phase 03: Repository Setup
 # ============================================================================
-# Part of: installers/vastai/phases/
+# Part of: p2p-gpu/phases/
 # Purpose: Clone DreamServer repo or locate existing checkout
 #
 # Expects: DREAM_USER, DREAM_HOME, REPO_URL, REPO_BRANCH,

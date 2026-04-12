@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Subcommand: status
 # ============================================================================
-# Part of: installers/vastai/subcommands/
+# Part of: p2p-gpu/subcommands/
 # Purpose: Display GPU info, container status, download progress
 #
 # Expects: log(), warn(), err(), find_dream_dir()

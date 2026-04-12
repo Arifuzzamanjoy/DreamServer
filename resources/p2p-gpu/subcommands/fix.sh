@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Subcommand: fix
 # ============================================================================
-# Part of: installers/vastai/subcommands/
+# Part of: p2p-gpu/subcommands/
 # Purpose: Apply fixes without full reinstall (port rebind, network fix,
 #          CPU cap, permissions, proxy restart)
 #

@@ -134,6 +134,10 @@ GPU cluster setup, deployment runbooks, golden build reference, LiveKit deployme
 
 These are actively being tested and used internally but not yet cleared for production. See [`dev/README.md`](dev/README.md) for usage instructions and the full roadmap.
 
+### [`p2p-gpu/`](p2p-gpu/) — Deploy on Rented GPU Instances
+
+**One-command DreamServer deployment on peer-to-peer GPU marketplaces** (Vast.ai, RunPod, Lambda, etc.). Handles 28 known provider quirks — root user rejection, Docker socket permissions, NVIDIA toolkit setup, model bootstrapping, reverse proxy, and more. Modular architecture: 8 libraries, 13 phases, 5 subcommands. Provider-agnostic core with provider-specific quirk isolation.
+
 ### [`legacy/`](legacy/) — 14 Historical Files
 
 Old compose files, systemd units, and configs from earlier DreamServer iterations. Kept for reference.

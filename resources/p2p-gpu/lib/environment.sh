@@ -1,29 +1,37 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Dream Server — Vast.ai Environment Helpers
+# DreamServer — P2P GPU Environment Helpers
 # ============================================================================
-# Part of: installers/vastai/lib/
+# Part of: resources/p2p-gpu/lib/
 # Purpose: .env management, port checks, directory discovery, CPU capping,
-#          ownership fixes, HTTP polling, post-install fix orchestrator
+#          ownership fixes, HTTP polling, GPU detection, post-install orchestrator
 #
 # Expects: DREAM_USER, DREAM_HOME, LOGFILE, log(), warn(), err()
 # Provides: env_set(), env_get(), port_in_use(), find_dream_dir(),
 #           cap_cpu_in_yaml(), fix_ownership(), wait_for_http(),
-#           apply_post_install_fixes()
+#           detect_gpu(), apply_post_install_fixes()
 #
 # Modder notes:
 #   env_set is idempotent — safe to call multiple times with same key.
+#   env_set creates .env with 0600 mode to protect secrets.
 #   find_dream_dir checks both expected DreamServer install paths.
+#   detect_gpu() is the single source of truth for GPU detection —
+#   call it once and reuse the result (avoid duplicate detection).
 #
 # SPDX-License-Identifier: Apache-2.0
 # ============================================================================
 
 set -euo pipefail
 
+# ── [FIX: env-perms] .env management with proper file permissions ───────────
+
 # Set a key in .env idempotently (no duplicates, preserves inode)
+# Creates with 0600 to protect secrets (WEBUI_SECRET, API keys, etc.)
 env_set() {
   local file="$1" key="$2" value="$3"
-  [[ ! -f "$file" ]] && touch "$file"
+  if [[ ! -f "$file" ]]; then
+    install -m 0600 /dev/null "$file"
+  fi
   if grep -q "^${key}=" "$file"; then
     sed -i "s|^${key}=.*|${key}=${value}|" "$file"
   else
@@ -46,12 +54,14 @@ port_in_use() {
 # Locate the active dream-server working directory
 find_dream_dir() {
   local candidate
+  # Prefer directory with both .env and compose (fully configured)
   for candidate in "${DREAM_HOME}/dream-server" "${DREAM_HOME}/DreamServer/dream-server"; do
     if [[ -f "${candidate}/.env" && -f "${candidate}/docker-compose.base.yml" ]]; then
       echo "$candidate"
       return 0
     fi
   done
+  # Fallback: any existing directory (partially configured)
   for candidate in "${DREAM_HOME}/dream-server" "${DREAM_HOME}/DreamServer/dream-server"; do
     if [[ -d "$candidate" ]]; then
       echo "$candidate"
@@ -78,6 +88,7 @@ fix_ownership() {
   local current_owner
   current_owner=$(stat -c '%U' "$dir" || echo "unknown")
   if [[ "$current_owner" != "$user" ]]; then
+    # chown may fail on NFS mounts or in containers without CAP_CHOWN
     chown -R "${user}:${group}" "$dir" || warn "chown failed on ${dir} (non-fatal)"
   fi
 }
@@ -96,7 +107,34 @@ wait_for_http() {
   return 1
 }
 
-# ── Detect GPU backend from hardware ────────────────────────────────────────
+# ── [FIX: gpu-dedup] Single source of truth for GPU detection ───────────────
+# Sets GPU_BACKEND, GPU_NAME, GPU_VRAM, GPU_COUNT as globals.
+# Call once in preflight; all other code reads these variables.
+detect_gpu() {
+  GPU_BACKEND="cpu"
+  GPU_NAME="none"
+  GPU_VRAM="0"
+  GPU_COUNT=0
+
+  if command -v nvidia-smi &>/dev/null && nvidia-smi --query-gpu=name --format=csv,noheader &>/dev/null 2>&1; then
+    GPU_BACKEND="nvidia"
+    GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 | xargs)
+    GPU_VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | xargs)
+    GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | wc -l)
+
+  elif command -v rocm-smi &>/dev/null || [[ -e /dev/kfd ]]; then
+    GPU_BACKEND="amd"
+    GPU_NAME=$(rocm-smi --showproductname 2>/dev/null | grep -oP 'Card series:\s*\K.*' | head -1 || echo "AMD GPU")
+    GPU_VRAM=$(rocm-smi --showmeminfo vram 2>/dev/null | grep -oP 'Total Memory \(B\):\s*\K[0-9]+' | head -1 || echo "0")
+    # Convert bytes to MiB
+    if [[ "${GPU_VRAM:-0}" -gt 1000000 ]]; then
+      GPU_VRAM=$(( GPU_VRAM / 1048576 ))
+    fi
+    GPU_COUNT=$(rocm-smi --showid 2>/dev/null | grep -c 'GPU\[' || echo 1)
+  fi
+}
+
+# Lightweight backend-only detection (for subcommands that don't need full GPU info)
 detect_gpu_backend() {
   if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
     echo "nvidia"

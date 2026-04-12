@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Phase 11: Access Layer
 # ============================================================================
-# Part of: installers/vastai/phases/
+# Part of: p2p-gpu/phases/
 # Purpose: Caddy reverse proxy, Cloudflare tunnel, SSH tunnel script
 #
 # Expects: DS_DIR, GPU_BACKEND, log(), warn(), setup_reverse_proxy(),

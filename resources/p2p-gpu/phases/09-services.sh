@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Phase 09: Services & Health Check
 # ============================================================================
-# Part of: installers/vastai/phases/
+# Part of: p2p-gpu/phases/
 # Purpose: Start all services, run health-check loop with llama-server
 #          diagnostics, report per-service status
 #

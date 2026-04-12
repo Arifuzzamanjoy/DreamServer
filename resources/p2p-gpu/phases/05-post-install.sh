@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Phase 05: Post-Install Fixes
 # ============================================================================
-# Part of: installers/vastai/phases/
+# Part of: p2p-gpu/phases/
 # Purpose: Locate active dream-server directory, apply all post-install fixes
 #
 # Expects: DREAM_HOME, REPO_DIR, GPU_BACKEND, DREAM_USER,

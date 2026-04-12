@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Phase 07: Model Download Optimization
 # ============================================================================
-# Part of: installers/vastai/phases/
+# Part of: p2p-gpu/phases/
 # Purpose: Resume incomplete downloads with aria2c multi-threaded transfer,
 #          start model swap watcher
 #

@@ -2,7 +2,7 @@
 # ============================================================================
 # Dream Server — Vast.ai Compatibility Fixes
 # ============================================================================
-# Part of: installers/vastai/lib/
+# Part of: p2p-gpu/lib/
 # Purpose: Service-specific compatibility patches for Whisper, TTS, ComfyUI,
 #          and OpenClaw running on Vast.ai instances
 #
