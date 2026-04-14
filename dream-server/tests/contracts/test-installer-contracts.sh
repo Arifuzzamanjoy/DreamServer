@@ -30,6 +30,12 @@ echo "[contract] capability profile schema has hardware_class"
 jq -e '.properties.hardware_class and (.required | index("hardware_class"))' config/capability-profile.schema.json >/dev/null \
   || { echo "[FAIL] capability profile schema missing hardware_class"; exit 1; }
 
+echo "[contract] AMD phase-06 env keys exist in schema"
+for key in HSA_XNACK AMDGPU_TARGET LLAMA_CPP_REF; do
+  jq -e --arg key "$key" '.properties[$key]' .env.schema.json >/dev/null \
+    || { echo "[FAIL] .env.schema.json missing AMD installer key: $key"; exit 1; }
+done
+
 echo "[contract] canonical port contract parity"
 test -x tests/contracts/test-port-contracts.sh || { echo "[FAIL] script not executable: tests/contracts/test-port-contracts.sh"; exit 1; }
 bash tests/contracts/test-port-contracts.sh
