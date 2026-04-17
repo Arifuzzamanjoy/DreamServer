@@ -24,7 +24,11 @@ cmd_teardown() {
   if [[ -f "docker-compose.base.yml" ]]; then
     local compose_cmd
     compose_cmd=$(get_compose_cmd)
-    $compose_cmd down --remove-orphans 2>&1 || warn "Compose down had warnings (non-fatal)"
+    if [[ "$compose_cmd" == "docker compose" ]]; then
+      docker compose down --remove-orphans 2>&1 || warn "Compose down had warnings (non-fatal)"
+    else
+      docker-compose down --remove-orphans 2>&1 || warn "Compose down had warnings (non-fatal)"
+    fi
   fi
 
   # [FIX: pkill] Use PID-file based cleanup instead of pkill -f

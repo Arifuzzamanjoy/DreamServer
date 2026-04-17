@@ -77,12 +77,39 @@ if ! command -v docker &>/dev/null; then
 fi
 
 COMPOSE_CMD=$(get_compose_cmd)
-log "Docker Compose: ${COMPOSE_CMD} ($(${COMPOSE_CMD} version --short 2>&1 || echo 'unknown'))"
+compose_version="unknown"
+case "$COMPOSE_CMD" in
+  "docker compose")
+    compose_version=$(docker compose version --short 2>&1 || echo "unknown")
+    ;;
+  "docker-compose")
+    compose_version=$(docker-compose version --short 2>&1 || echo "unknown")
+    ;;
+esac
+log "Docker Compose: ${COMPOSE_CMD} (${compose_version})"
 
 # ── GPU passthrough verification ────────────────────────────────────────────
 _verify_nvidia_passthrough() {
-  if ! docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi &>/dev/null; then
-    warn "NVIDIA GPU passthrough test failed — checking toolkit..."
+  local gpu_test_image="nvidia/cuda:12.4.1-base-ubuntu22.04"
+  local passthrough_timeout="${NVIDIA_DOCKER_TEST_TIMEOUT:-180}"
+  local probe_rc=0
+
+  log "Verifying NVIDIA Docker passthrough (timeout ${passthrough_timeout}s; first run may pull ${gpu_test_image})"
+  if timeout --signal=TERM "${passthrough_timeout}" \
+    docker run --rm --gpus all "${gpu_test_image}" nvidia-smi &>/dev/null; then
+    log "NVIDIA Docker passthrough verified"
+    return 0
+  else
+    probe_rc=$?
+  fi
+
+  if [[ "$probe_rc" -eq 124 ]]; then
+    warn "NVIDIA GPU passthrough probe timed out after ${passthrough_timeout}s — checking toolkit..."
+  else
+    warn "NVIDIA GPU passthrough test failed (exit ${probe_rc}) — checking toolkit..."
+  fi
+
+  if [[ "$probe_rc" -ne 0 ]]; then
     if ! dpkg -l nvidia-container-toolkit &>/dev/null; then
       warn "nvidia-container-toolkit not installed — attempting install"
       curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
@@ -97,8 +124,6 @@ _verify_nvidia_passthrough() {
         || warn "docker restart failed (non-fatal)"
       log "nvidia-container-toolkit installed and configured"
     fi
-  else
-    log "NVIDIA Docker passthrough verified"
   fi
 }
 

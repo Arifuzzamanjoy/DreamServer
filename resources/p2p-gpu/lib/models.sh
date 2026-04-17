@@ -375,8 +375,10 @@ swap_model() {
   # Use compose recreate (re-reads .env) instead of docker restart (ignores .env changes)
   local cmd
   cmd=$(compose_cmd)
-  if [[ "$cmd" != "docker restart" ]]; then
-    cd "$SCRIPT_DIR" && $cmd up -d llama-server || warn "compose recreate failed (non-fatal)"
+  if [[ "$cmd" == "docker compose" ]]; then
+    cd "$SCRIPT_DIR" && docker compose up -d llama-server || warn "compose recreate failed (non-fatal)"
+  elif [[ "$cmd" == "docker-compose" ]]; then
+    cd "$SCRIPT_DIR" && docker-compose up -d llama-server || warn "compose recreate failed (non-fatal)"
   else
     docker restart dream-llama-server || warn "llama-server restart failed (non-fatal)"
   fi

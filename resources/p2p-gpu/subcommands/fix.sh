@@ -38,7 +38,11 @@ set -euo pipefail
       log "Fixing stale dream-network..."
       local compose_cmd
       compose_cmd=$(get_compose_cmd)
-      $compose_cmd down 2>&1 || warn "compose down failed (non-fatal)"
+      if [[ "$compose_cmd" == "docker compose" ]]; then
+        docker compose down 2>&1 || warn "compose down failed (non-fatal)"
+      else
+        docker-compose down 2>&1 || warn "compose down failed (non-fatal)"
+      fi
       for cid in $(docker network inspect dream-network \
         -f '{{range .Containers}}{{.Name}} {{end}}' 2>&1 || echo ""); do
         docker network disconnect -f dream-network "$cid" || warn "disconnect ${cid} failed (non-fatal)"
