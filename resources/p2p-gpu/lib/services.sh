@@ -22,6 +22,25 @@
 
 set -euo pipefail
 
+# Ensure Dream host agent is running so Dashboard model downloads can start.
+_ensure_host_agent_running() {
+  local ds_dir="$1"
+  local dream_cli="${ds_dir}/dream-cli"
+
+  if [[ ! -x "$dream_cli" ]]; then
+    warn "dream-cli not found at ${dream_cli} — skipping host agent auto-start"
+    return 0
+  fi
+
+  if su - "$DREAM_USER" -c "cd ${ds_dir} && DREAM_HOME=${ds_dir} ./dream-cli agent start" \
+    >> "$LOGFILE" 2>&1; then
+    log "Ensured Dream host agent is started"
+  else
+    warn "Dream host agent auto-start failed — model download from Dashboard may fail"
+    warn "Run manually: su - ${DREAM_USER} -c 'cd ${ds_dir} && DREAM_HOME=${ds_dir} ./dream-cli agent start'"
+  fi
+}
+
 # Read a field from a manifest.yaml service: block
 read_manifest_field() {
   local manifest="$1" field="$2"
@@ -394,4 +413,5 @@ start_services() {
   fi
 
   _heal_dashboard_api_proxy "$env_file"
+  _ensure_host_agent_running "$ds_dir"
 }

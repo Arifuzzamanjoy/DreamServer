@@ -132,6 +132,7 @@ Aligned with DreamServer's [CLAUDE.md](../../CLAUDE.md):
 
 - Setup starts quickly on a small model, downloads the GPU-tier model in background, then auto-swaps when ready.
 - Swap updates both `GGUF_FILE` and `LLM_MODEL`, then restarts dependent services.
+- Dashboard model downloads (`/models` page) require the Dream host agent; setup now auto-starts it during service startup.
 
 ```bash
 MODEL="Qwen3-30B-A3B-Q4_K_M.gguf"; DS_DIR="${DS_DIR:-/home/dream/dream-server}"; LLM_MODEL="$(echo "$MODEL" | sed -E 's/\.(gguf|GGUF)$//' | sed -E 's/-Q[0-9]+([._][A-Za-z0-9]+)*$//' | tr '[:upper:]' '[:lower:]')"; cd "$DS_DIR" && sed -i "s|^GGUF_FILE=.*|GGUF_FILE=${MODEL}|" .env && { grep -q '^LLM_MODEL=' .env && sed -i "s|^LLM_MODEL=.*|LLM_MODEL=${LLM_MODEL}|" .env || echo "LLM_MODEL=${LLM_MODEL}" >> .env; } && docker compose $(cat .compose-flags 2>/dev/null) up -d llama-server && for c in dream-dreamforge dream-openclaw dream-dashboard-api dream-webui; do docker ps --format '{{.Names}}' | grep -qx "$c" && docker restart "$c" >/dev/null || true; done
@@ -139,6 +140,11 @@ MODEL="Qwen3-30B-A3B-Q4_K_M.gguf"; DS_DIR="${DS_DIR:-/home/dream/dream-server}";
 
 ```bash
 tail -f /home/dream/dream-server/logs/aria2c-download.log
+```
+
+```bash
+# If Dashboard shows "Failed to start download"
+su - dream -c 'cd /home/dream/dream-server && DREAM_HOME=/home/dream/dream-server ./dream-cli agent start'
 ```
 
 ## Provider Support
