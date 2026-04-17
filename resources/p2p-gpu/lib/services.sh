@@ -41,6 +41,49 @@ _ensure_host_agent_running() {
   fi
 }
 
+# Ensure OpenCode web is reachable on no-systemd hosts (Vast.ai fallback).
+_ensure_opencode_web_running() {
+  local ds_dir="$1"
+  local env_file="${ds_dir}/.env"
+  local opencode_bin="/home/${DREAM_USER}/.opencode/bin/opencode"
+  local opencode_port opencode_password escaped_password
+
+  opencode_port=$(env_get "$env_file" "OPENCODE_PORT")
+  opencode_port="${opencode_port:-3003}"
+
+  if curl -sf --max-time 3 "http://127.0.0.1:${opencode_port}/" >/dev/null 2>&1; then
+    log "OpenCode web already reachable on port ${opencode_port}"
+    return 0
+  fi
+
+  if [[ ! -x "$opencode_bin" ]]; then
+    warn "OpenCode binary not found at ${opencode_bin} — skipping OpenCode web auto-start"
+    return 0
+  fi
+
+  opencode_password=$(env_get "$env_file" "OPENCODE_SERVER_PASSWORD")
+  if [[ -z "$opencode_password" ]]; then
+    opencode_password=$(openssl rand -base64 16)
+    env_set "$env_file" "OPENCODE_SERVER_PASSWORD" "$opencode_password"
+    log "Generated OPENCODE_SERVER_PASSWORD for secure OpenCode web access"
+  fi
+
+  mkdir -p "${ds_dir}/logs"
+  escaped_password=$(printf '%q' "$opencode_password")
+  if su - "$DREAM_USER" -c \
+    "cd ${ds_dir} && OPENCODE_SERVER_PASSWORD=${escaped_password} nohup ${opencode_bin} web --host 0.0.0.0 --port ${opencode_port} >> ${ds_dir}/logs/opencode-web.log 2>&1 &" \
+    >> "$LOGFILE" 2>&1; then
+    sleep 2
+    if curl -sf --max-time 4 "http://127.0.0.1:${opencode_port}/" >/dev/null 2>&1; then
+      log "Started OpenCode web fallback on port ${opencode_port}"
+    else
+      warn "OpenCode fallback launch command succeeded but service is not reachable yet"
+    fi
+  else
+    warn "OpenCode fallback launch failed (non-fatal)"
+  fi
+}
+
 # Read a field from a manifest.yaml service: block
 read_manifest_field() {
   local manifest="$1" field="$2"
@@ -414,4 +457,5 @@ start_services() {
 
   _heal_dashboard_api_proxy "$env_file"
   _ensure_host_agent_running "$ds_dir"
+  _ensure_opencode_web_running "$ds_dir"
 }
