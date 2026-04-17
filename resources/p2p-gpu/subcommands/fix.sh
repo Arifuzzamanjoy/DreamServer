@@ -8,7 +8,8 @@
 #
 # Expects: log(), warn(), err(), find_dream_dir(), detect_gpu_backend(),
 #          expose_ports_for_vastai(), apply_post_install_fixes(),
-#          start_services(), generate_ssh_tunnel_script(),
+#          start_services(), ensure_whisper_asr_model(), ensure_tts_model_ready(),
+#          generate_ssh_tunnel_script(),
 #          generate_powershell_tunnel_script(), print_access_info(),
 #          get_compose_cmd()
 # Provides: All runtime fixes applied and services restarted
@@ -56,6 +57,8 @@ set -euo pipefail
 
   log "Fixes applied. Restarting services..."
   start_services "$ds_dir"
+  ensure_whisper_asr_model "$ds_dir"
+  ensure_tts_model_ready "$ds_dir"
 
   generate_ssh_tunnel_script "$ds_dir"
   generate_powershell_tunnel_script "$ds_dir"
