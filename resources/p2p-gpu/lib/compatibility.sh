@@ -200,9 +200,8 @@ fix_comfyui_permissions() {
   fi
 
   for d in "${dirs[@]}"; do
-    if [[ -d "$d" ]]; then
-      chmod -R a+rwX "$d" || warn "comfyui chmod failed on ${d} (non-fatal)"
-    fi
+    mkdir -p "$d" || { warn "comfyui mkdir failed on ${d} (non-fatal)"; continue; }
+    chmod -R a+rwX "$d" || warn "comfyui chmod failed on ${d} (non-fatal)"
   done
 }
 

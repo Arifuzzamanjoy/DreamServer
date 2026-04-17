@@ -188,6 +188,18 @@ precreate_extension_data_dirs() {
     done
   done
 
+  # Pre-create ComfyUI bind-mount paths so Docker doesn't auto-create root-owned
+  # 0755 directories that are unwritable for the non-root comfyui user.
+  mkdir -p "${data_dir}/comfyui/models" \
+    "${data_dir}/comfyui/models/checkpoints" \
+    "${data_dir}/comfyui/output" \
+    "${data_dir}/comfyui/input" \
+    "${data_dir}/comfyui/workflows" \
+    "${data_dir}/comfyui/ComfyUI/models" \
+    "${data_dir}/comfyui/ComfyUI/output" \
+    "${data_dir}/comfyui/ComfyUI/input" \
+    "${data_dir}/comfyui/ComfyUI/custom_nodes"
+
   mkdir -p "${ds_dir}/user-extensions" || warn "could not create user-extensions (non-fatal)"
   log "Pre-created data directories for all known extensions"
 }
@@ -251,7 +263,17 @@ ${uid_fix_lines}
 [[ -d "\${DATA_DIR}/searxng" ]] && chmod -R a+rwX "\${DATA_DIR}/searxng" || warn "searxng fix failed (non-fatal)"
 [[ -d "\${DATA_DIR}/models" ]] && chmod -R a+rwX "\${DATA_DIR}/models" || warn "models fix failed (non-fatal)"
 
-for d in "\${DATA_DIR}/comfyui/models" "\${DATA_DIR}/comfyui/output" "\${DATA_DIR}/comfyui/input"; do
+for d in \
+  "\${DATA_DIR}/comfyui/models" \
+  "\${DATA_DIR}/comfyui/models/checkpoints" \
+  "\${DATA_DIR}/comfyui/output" \
+  "\${DATA_DIR}/comfyui/input" \
+  "\${DATA_DIR}/comfyui/workflows" \
+  "\${DATA_DIR}/comfyui/ComfyUI/models" \
+  "\${DATA_DIR}/comfyui/ComfyUI/output" \
+  "\${DATA_DIR}/comfyui/ComfyUI/input" \
+  "\${DATA_DIR}/comfyui/ComfyUI/custom_nodes"; do
+  mkdir -p "\$d" || warn "comfyui mkdir failed on \$d (non-fatal)"
   [[ -d "\$d" ]] && chmod -R a+rwX "\$d" || warn "comfyui fix failed (non-fatal)"
 done
 
