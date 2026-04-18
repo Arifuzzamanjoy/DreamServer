@@ -14,6 +14,9 @@ bash setup.sh --status     # Health check
 bash setup.sh --teardown   # Stop all services (save $$$)
 ```
 
+## Setup Guide
+https://drive.google.com/file/d/1SrBooRJwP24OTWXZH-TOlk4q6tK44DUR/view?usp=sharing
+
 ## Quick Recovery (If Phase 9 Fails)
 
 If setup reached "Starting services" but URLs are unreachable:
