@@ -23,6 +23,44 @@
 set -euo pipefail
 
 # Ensure Dream host agent is running so Dashboard model downloads can start.
+_stop_host_agent_gracefully() {
+  local ds_dir="$1"
+  local pid_file="${ds_dir}/data/dream-host-agent.pid"
+  [[ ! -f "$pid_file" ]] && return 0
+
+  local pid
+  pid=$(cat "$pid_file" 2>>"$LOGFILE" || echo "")
+  if [[ -z "$pid" ]]; then
+    rm -f "$pid_file"
+    return 0
+  fi
+  if [[ ! "$pid" =~ ^[0-9]+$ ]]; then
+    warn "Invalid host agent PID file (${pid_file}) — removing"
+    rm -f "$pid_file"
+    return 0
+  fi
+
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -INT "$pid" 2>>"$LOGFILE" || warn "Could not send SIGINT to host agent (PID ${pid})"
+    local waited=0
+    while kill -0 "$pid" 2>/dev/null && [[ "$waited" -lt 5 ]]; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      warn "Host agent did not exit after SIGINT — escalating to SIGTERM"
+      kill -TERM "$pid" 2>>"$LOGFILE" || warn "Could not send SIGTERM to host agent (PID ${pid})"
+      sleep 1
+    fi
+    if kill -0 "$pid" 2>/dev/null; then
+      warn "Host agent still running — forcing SIGKILL"
+      kill -9 "$pid" 2>>"$LOGFILE" || warn "Could not SIGKILL host agent (PID ${pid})"
+    fi
+  fi
+
+  rm -f "$pid_file"
+}
+
 _ensure_host_agent_running() {
   local ds_dir="$1"
   local dream_cli="${ds_dir}/dream-cli"
@@ -31,6 +69,10 @@ _ensure_host_agent_running() {
     warn "dream-cli not found at ${dream_cli} — skipping host agent auto-start"
     return 0
   fi
+
+  # In no-systemd provider environments, dream-cli fallback stop uses SIGTERM.
+  # Stop with SIGINT first to avoid the known shutdown deadlock path.
+  _stop_host_agent_gracefully "$ds_dir"
 
   if su - "$DREAM_USER" -c "cd ${ds_dir} && DREAM_HOME=${ds_dir} ./dream-cli agent start" \
     >> "$LOGFILE" 2>&1; then
@@ -113,7 +155,9 @@ discover_all_services() {
   if [[ -z "$hints_file" && -n "${SCRIPT_DIR:-}" ]]; then
     hints_file="${SCRIPT_DIR}/config/service-hints.yaml"
   fi
-  local ext_dirs=("${ds_dir}/extensions/services" "${ds_dir}/user-extensions")
+  # Dashboard-installed extensions live under data/user-extensions.
+  # Keep legacy user-extensions path for backward compatibility.
+  local ext_dirs=("${ds_dir}/extensions/services" "${ds_dir}/data/user-extensions" "${ds_dir}/user-extensions")
 
   for ext_root in "${ext_dirs[@]}"; do
     [[ ! -d "$ext_root" ]] && continue

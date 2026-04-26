@@ -21,11 +21,7 @@ step "Phase 8/12: Applying Vast.ai-specific fixes"
 # ── No systemd ─────────────────────────────────────────────────────────────
 if ! command -v systemctl &>/dev/null && ! pidof systemd &>/dev/null; then
   log "No systemd detected — Vast.ai environment confirmed"
-  dream_cli="${DS_DIR}/dream-cli"
-  if [[ -x "$dream_cli" ]]; then
-    su - "$DREAM_USER" -c "cd ${DS_DIR} && ./dream-cli agent start" 2>&1 || \
-      warn "Host agent start failed (non-fatal — dashboard may have limited features)"
-  fi
+  _ensure_host_agent_running "$DS_DIR"
 fi
 
 # ── OpenCode crash-loop disable ────────────────────────────────────────────

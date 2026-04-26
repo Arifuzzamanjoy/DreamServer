@@ -35,6 +35,10 @@ expose_ports_for_vastai() {
   log "Rebinding Docker ports from 127.0.0.1 → 0.0.0.0 for Vast.ai external access"
   local count=0
   while IFS= read -r -d '' compose_file; do
+    # Keep extension library templates localhost-bound so Dashboard install
+    # security checks keep passing. Only active stack/user compose files should
+    # be rewritten for external access.
+    [[ "$compose_file" == "${ds_dir}/data/extensions-library/"* ]] && continue
     if grep -q '"127\.0\.0\.1:' "$compose_file"; then
       sed -i 's/"127\.0\.0\.1:/"0.0.0.0:/g' "$compose_file"
       count=$((count + 1))
