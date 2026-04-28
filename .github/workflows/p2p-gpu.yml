@@ -50,6 +50,11 @@ jobs:
             --exclude=SC1090,SC1091,SC2034 \
             --severity=error
 
+      - name: NVML mismatch regression test
+        run: |
+          set -euo pipefail
+          bash resources/p2p-gpu/tests/test-nvml-mismatch.sh
+
       - name: Smoke test (--dry-run, --status, --fix)
         run: |
           set -euo pipefail

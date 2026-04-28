@@ -11,7 +11,8 @@
 #           ensure_dream_cli_command(),
 #           cap_cpu_in_yaml(), cap_cpu_in_files(), get_compose_cpu_ceiling(),
 #           compute_safe_cpu_cap(), fix_ownership(), wait_for_http(),
-#           detect_gpu(), apply_post_install_fixes()
+#           detect_gpu(), detect_nvml_mismatch(), repair_nvml_mismatch(),
+#           handle_nvml_mismatch(), apply_post_install_fixes()
 #
 # Modder notes:
 #   env_set is idempotent — safe to call multiple times with same key.
@@ -319,17 +320,29 @@ detect_nvml_mismatch() {
 # Attempts to upgrade host NVIDIA driver to resolve mismatch.
 # Non-fatal: logs warnings on failure but does not halt.
 repair_nvml_mismatch() {
-  local initial_state post_repair_state
-  
+  local docker_test_image="${1:-nvidia/cuda:12.4.1-base-ubuntu22.04}"
+  local initial_status=0 post_repair_status=0
+
   log "Attempting to repair NVIDIA driver/library mismatch..."
 
-  # Capture initial state
-  initial_state=$(detect_nvml_mismatch)
-  
-  if [[ $? -eq 0 ]]; then
-    log "No mismatch detected, skipping repair"
-    return 0
-  fi
+  # Explicitly preserve exit status under `set -e`.
+  detect_nvml_mismatch "$docker_test_image" || initial_status=$?
+  case "$initial_status" in
+    0)
+      log "No mismatch detected, skipping repair"
+      return 0
+      ;;
+    1)
+      ;;
+    2)
+      log "NVIDIA mismatch check inconclusive; skipping repair (non-fatal)"
+      return 0
+      ;;
+    *)
+      warn "Unexpected NVIDIA mismatch status (${initial_status}); skipping repair"
+      return 0
+      ;;
+  esac
 
   # Attempt upgrade
   log "Running apt-get update && apt-get install --only-upgrade nvidia-driver-*"
@@ -346,18 +359,68 @@ repair_nvml_mismatch() {
 
     # Verify post-repair
     sleep 2  # brief delay for driver to stabilize
-    post_repair_state=$(detect_nvml_mismatch)
-    if [[ $? -eq 0 ]]; then
-      log "NVIDIA driver mismatch RESOLVED after upgrade"
-      return 0
-    else
-      warn "NVIDIA driver mismatch persists after upgrade (non-fatal, manual intervention may be needed)"
-      return 1
-    fi
+    detect_nvml_mismatch "$docker_test_image" || post_repair_status=$?
+    case "$post_repair_status" in
+      0)
+        log "NVIDIA driver mismatch RESOLVED after upgrade"
+        return 0
+        ;;
+      1)
+        warn "NVIDIA driver mismatch persists after upgrade (non-fatal, manual intervention may be needed)"
+        return 1
+        ;;
+      2)
+        warn "Post-repair NVIDIA mismatch verification was inconclusive (non-fatal)"
+        return 1
+        ;;
+      *)
+        warn "Post-repair NVIDIA mismatch check returned unexpected status (${post_repair_status})"
+        return 1
+        ;;
+    esac
   else
     warn "NVIDIA driver upgrade failed (non-fatal, GPU may still work)"
     return 1
   fi
+}
+
+# Handles NVIDIA mismatch check with explicit exit-status branching.
+# Args:
+#   $1: Docker image for probe (optional)
+#   $2: Mode: "warn" or "repair" (default: warn)
+# Non-fatal: always returns 0.
+handle_nvml_mismatch() {
+  local docker_test_image="${1:-nvidia/cuda:12.4.1-base-ubuntu22.04}"
+  local mode="${2:-warn}"
+  local mismatch_status=0
+
+  detect_nvml_mismatch "$docker_test_image" || mismatch_status=$?
+
+  case "$mismatch_status" in
+    0)
+      return 0
+      ;;
+    1)
+      if [[ "$mode" == "repair" ]]; then
+        warn "NVIDIA driver/library mismatch detected — attempting repair"
+        if repair_nvml_mismatch "$docker_test_image"; then
+          log "NVIDIA driver/library mismatch repair completed"
+        else
+          warn "NVIDIA driver/library mismatch repair failed (non-fatal, manual intervention may be needed)"
+        fi
+      else
+        warn "NVIDIA driver/library mismatch detected (non-fatal)"
+      fi
+      ;;
+    2)
+      log "NVIDIA driver/library mismatch check inconclusive (non-fatal)"
+      ;;
+    *)
+      warn "NVIDIA driver/library mismatch check returned unexpected status (${mismatch_status})"
+      ;;
+  esac
+
+  return 0
 }
 
 # ── Post-install fix orchestrator ───────────────────────────────────────────
@@ -407,13 +470,7 @@ apply_post_install_fixes() {
   # ── [FIX: nvml-mismatch] Post-install NVIDIA driver check (fallback) ──────
   if [[ "$gpu_backend" == "nvidia" ]]; then
     log "Checking for NVIDIA driver/library version alignment (post-install)..."
-    if ! detect_nvml_mismatch; then
-      mismatch_status=$?
-      if [[ $mismatch_status -eq 1 ]]; then
-        warn "NVIDIA driver/library mismatch detected post-install (non-fatal)"
-        warn "Run 'bash setup.sh --fix' to repair, or manually upgrade nvidia-driver-*"
-      fi
-    fi
+    handle_nvml_mismatch "nvidia/cuda:12.4.1-base-ubuntu22.04" "repair"
   fi
 
   log "Post-install fixes applied (including ACL-based permission system)"

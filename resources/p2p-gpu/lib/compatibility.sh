@@ -60,7 +60,8 @@ ensure_webui_stt_model_alignment() {
   current=$(grep -E 'AUDIO_STT_MODEL:' "$nvidia_overlay" | head -1 | sed -E 's/.*AUDIO_STT_MODEL:\s*"?(.*)"?/\1/' || echo "")
   [[ "$current" == "$model_id" ]] && return 0
 
-  sed -i -E "s|AUDIO_STT_MODEL:.*|      AUDIO_STT_MODEL: \"${model_id}\"|" "$nvidia_overlay"
+  # Preserve existing indentation to avoid corrupting YAML structure.
+  sed -i -E "s|^([[:space:]]*)AUDIO_STT_MODEL:.*|\\1AUDIO_STT_MODEL: \"${model_id}\"|" "$nvidia_overlay"
   log "Aligned Open WebUI STT model to ${model_id}"
 }
 
