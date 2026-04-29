@@ -125,8 +125,14 @@ _verify_nvidia_passthrough() {
         | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null
       apt-get update -qq 2>>"$LOGFILE" && apt-get install -y -qq nvidia-container-toolkit 2>>"$LOGFILE"
       nvidia-ctk runtime configure --runtime=docker 2>>"$LOGFILE" || warn "nvidia-ctk configure failed (non-fatal)"
-      systemctl restart docker 2>>"$LOGFILE" || service docker restart 2>>"$LOGFILE" \
-        || warn "docker restart failed (non-fatal)"
+      if systemctl restart docker 2>>"$LOGFILE"; then
+        :
+      elif service docker restart 2>>"$LOGFILE"; then
+        :
+      else
+        err "docker restart failed — manual restart required"
+        exit 1
+      fi
       log "nvidia-container-toolkit installed and configured"
       
       # ── [FIX: nvml-mismatch] Re-check after toolkit install ──────────────

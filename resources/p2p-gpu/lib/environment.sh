@@ -96,7 +96,7 @@ export DREAM_HOME="\${DREAM_HOME:-${ds_dir}}"
 cd "${ds_dir}"
 exec "${cli_path}" "\$@"
 EOF
-  chmod +x "$wrapper" || warn "chmod failed on ${wrapper} (non-fatal)"
+  chmod +x "$wrapper"
   log "Installed global dream command: ${wrapper}"
 }
 
@@ -321,7 +321,7 @@ detect_nvml_mismatch() {
 # Non-fatal: logs warnings on failure but does not halt.
 repair_nvml_mismatch() {
   local docker_test_image="${1:-nvidia/cuda:12.4.1-base-ubuntu22.04}"
-  local initial_status=0 post_repair_status=0
+  local initial_status=0 post_repair_status=0 installed_pkg
 
   log "Attempting to repair NVIDIA driver/library mismatch..."
 
@@ -344,17 +344,26 @@ repair_nvml_mismatch() {
       ;;
   esac
 
+  installed_pkg=$(dpkg -l 'nvidia-driver-*' 2>/dev/null | awk '/^ii/{print $2;exit}')
+  if [[ -z "$installed_pkg" ]]; then
+    warn "no apt-managed nvidia-driver package found, skipping upgrade (non-fatal)"
+    return 1
+  fi
+
   # Attempt upgrade
-  log "Running apt-get update && apt-get install --only-upgrade nvidia-driver-*"
-  if apt-get update -qq 2>>"$LOGFILE" && apt-get install -y -qq --only-upgrade "nvidia-driver-*" 2>>"$LOGFILE"; then
+  log "Running apt-get update && apt-get install --only-upgrade ${installed_pkg}"
+  if apt-get update -qq 2>>"$LOGFILE" && apt-get install -y -qq --only-upgrade "$installed_pkg" 2>>"$LOGFILE"; then
     log "NVIDIA driver upgrade completed"
     
     # Restart Docker to recognize new driver
     log "Restarting Docker daemon to recognize upgraded driver..."
-    if systemctl restart docker 2>>"$LOGFILE" || service docker restart 2>>"$LOGFILE"; then
+    if systemctl restart docker 2>>"$LOGFILE"; then
+      log "Docker daemon restarted"
+    elif service docker restart 2>>"$LOGFILE"; then
       log "Docker daemon restarted"
     else
-      warn "Docker restart failed (non-fatal, may need manual restart)"
+      err "docker restart failed — manual restart required"
+      exit 1
     fi
 
     # Verify post-repair

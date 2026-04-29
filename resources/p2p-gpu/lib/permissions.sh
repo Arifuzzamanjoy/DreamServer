@@ -18,7 +18,7 @@
 #
 #   [FIX: broad-chmod] Permission strategy:
 #     - Primary: setgid (2775) + POSIX ACLs → group-based access
-#     - Exception: multi-UID dirs (models/, searxng/) use a+rwX because
+#     - Exception: multi-UID dirs use a+rwX because
 #       multiple unrelated UIDs write and ACLs can't express "any UID"
 #     - setfacl is required; fail fast when unavailable
 #
@@ -40,15 +40,15 @@ apply_data_acl() {
   local dir="$1"
   [[ ! -d "$dir" ]] && return 0
 
-  chown -R "${DREAM_USER}:${DREAM_USER}" "$dir" || warn "chown failed on ${dir} (non-fatal)"
-  find "$dir" -type d -exec chmod 2775 {} + || warn "chmod dirs failed on ${dir} (non-fatal)"
-  find "$dir" -type f -exec chmod 0664 {} + || warn "chmod files failed on ${dir} (non-fatal)"
+  chown -R "${DREAM_USER}:${DREAM_USER}" "$dir"
+  find "$dir" -type d -exec chmod 2775 {} +
+  find "$dir" -type f -exec chmod 0664 {} +
 
   if command -v setfacl &>/dev/null; then
     # dashboard-api runs as uid 1000 (dreamer) and needs write access to /data
     # for .extensions-lock and token_counter.json.
-    setfacl -R -d -m "u::rwx,u:1000:rwx,g::rwx,o::rx" "$dir" || warn "setfacl default failed on ${dir} (non-fatal)"
-    setfacl -R -m "u:1000:rwx,g::rwx" "$dir" || warn "setfacl current failed on ${dir} (non-fatal)"
+    setfacl -R -d -m "u::rwx,u:1000:rwx,g::rwx,o::rx" "$dir"
+    setfacl -R -m "u:1000:rwx,g::rwx" "$dir"
     log "Applied POSIX ACLs on ${dir}"
   else
     err "setfacl unavailable — install with: apt-get install acl"

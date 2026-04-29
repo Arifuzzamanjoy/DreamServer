@@ -353,13 +353,14 @@ _apply_host_cpu_caps() {
 _compose_up() {
   local ds_dir="$1" compose_cmd="$2" compose_flags="$3" compose_err="$4"
   shift 4
-  local ansi_flag cmd
+  local ansi_flag cmd service_args
   ansi_flag=$(_compose_ansi_flag "$compose_cmd")
   cmd="${compose_cmd}"
   [[ -n "$ansi_flag" ]] && cmd="${cmd} ${ansi_flag}"
   cmd="${cmd} ${compose_flags} up -d"
   if [[ "$#" -gt 0 ]]; then
-    cmd="${cmd} $*"
+    printf -v service_args ' %q' "$@"
+    cmd="${cmd}${service_args}"
   fi
 
   su - "$DREAM_USER" -c "cd ${ds_dir} && ${cmd}" 2>&1 \
@@ -457,9 +458,11 @@ start_services() {
     if ! _compose_up_with_cpu_heal "$ds_dir" "$compose_cmd" "$compose_flags" "$env_file" \
       "core services" llama-server dashboard-api open-webui dashboard; then
       warn "Core compose with llama failed — bringing up control plane only"
-      _compose_up_with_cpu_heal "$ds_dir" "$compose_cmd" "$compose_flags" "$env_file" \
-        "control-plane services" dashboard-api dashboard open-webui \
-        || warn "control-plane compose up also failed (non-fatal)"
+      if ! _compose_up_with_cpu_heal "$ds_dir" "$compose_cmd" "$compose_flags" "$env_file" \
+        "control-plane services" dashboard-api dashboard open-webui; then
+        err "core compose invocation failed — stack is unusable"
+        exit 1
+      fi
     fi
   fi
 
