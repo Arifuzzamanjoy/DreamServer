@@ -14,7 +14,7 @@
 #   bash setup.sh --status     # Health check
 #   bash setup.sh --info       # Show connection URLs
 #   bash setup.sh --fix        # Apply fixes + restart (no reinstall)
-#   bash setup.sh --teardown   # Stop all services (save billing)
+#   bash setup.sh --teardown   # Stop all services (pause work, instance still billed)
 #
 # This file sources library modules (pure functions) then runs each install
 # phase in order. Modules live under:

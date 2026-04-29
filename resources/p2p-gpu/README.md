@@ -102,7 +102,7 @@ p2p-gpu/
 │   ├── 11-access-layer.sh      # Caddy proxy + Cloudflare tunnel + SSH
 │   └── 12-summary.sh           # Print access info
 └── subcommands/                # Alternative entry points
-    ├── teardown.sh             # Stop all services (save billing)
+    ├── teardown.sh             # Stop all services (pause work; instance still billed)
     ├── status.sh               # Health check dashboard
     ├── resume.sh               # Quick restart after SSH drop
     ├── fix.sh                  # Apply fixes without reinstall

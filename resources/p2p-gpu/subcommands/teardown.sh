@@ -3,7 +3,9 @@
 # DreamServer — P2P GPU Subcommand: teardown
 # ============================================================================
 # Part of: resources/p2p-gpu/subcommands/
-# Purpose: Stop all containers and background processes to halt billing
+# Purpose: Stop all containers and background processes (pause work)
+#          NOTE: Instance continues running and will be billed. Delete from
+#          provider console to fully stop billing.
 #
 # Expects: log(), warn(), err(), find_dream_dir(), get_compose_cmd(),
 #          _kill_stored_pid(), PIDFILE_DIR, SCRIPT_NAME
@@ -15,7 +17,7 @@
 set -euo pipefail
 
 cmd_teardown() {
-  step "Teardown — stopping all services to halt billing"
+  step "Teardown — stopping all services"
   local ds_dir
   ds_dir=$(find_dream_dir) || { err "DreamServer directory not found"; exit 1; }
 
@@ -36,9 +38,11 @@ cmd_teardown() {
   _kill_stored_pid "model-swap-watcher"
   _kill_stored_pid "cloudflared"
 
-  log "All services stopped. Storage billing continues."
-  log "To fully stop billing: delete the instance from the provider console."
+  log "All services stopped."
+  echo ""
+  echo -e "${BOLD}Important:${NC} Instance is still running and will be billed."
+  echo -e "${BOLD}To fully stop billing:${NC} Delete the instance from your provider console."
   echo ""
   echo -e "${BOLD}Data preserved at:${NC} ${ds_dir}/data/"
-  echo -e "${BOLD}To resume:${NC} bash ${SCRIPT_NAME} --resume"
+  echo -e "${BOLD}To resume work:${NC} bash ${SCRIPT_NAME} --resume"
 }
