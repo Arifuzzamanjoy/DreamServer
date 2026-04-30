@@ -184,4 +184,4 @@ elif [[ -n "$tier_gguf" && "$tier_gguf" == "${current_gguf:-}" ]]; then
 fi
 
 fix_known_uid_requirements "$data_dir" "$GPU_BACKEND"
-apply_data_acl "$models_dir" || warn "ACL on models/ failed (non-fatal)"
+apply_data_acl "$models_dir"
