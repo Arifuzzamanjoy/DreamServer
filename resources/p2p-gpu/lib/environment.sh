@@ -290,8 +290,7 @@ detect_nvml_mismatch() {
   local host_probe_output host_probe_rc container_probe_output container_probe_rc
 
   # Get host driver version
-  host_probe_output=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>&1 || true)
-  host_probe_rc=$?
+  host_probe_output=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>&1) && host_probe_rc=0 || host_probe_rc=$?
   [[ -n "$host_probe_output" ]] && printf '%s\n' "$host_probe_output" >> "$LOGFILE"
 
   if [[ $host_probe_rc -eq 0 ]]; then
@@ -311,8 +310,7 @@ detect_nvml_mismatch() {
   # Get container CUDA driver compatibility version
   container_probe_output=$(timeout --signal=TERM "$test_timeout" \
     docker run --rm --gpus all "$docker_test_image" \
-    nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>&1 || true)
-  container_probe_rc=$?
+    nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>&1) && container_probe_rc=0 || container_probe_rc=$?
   [[ -n "$container_probe_output" ]] && printf '%s\n' "$container_probe_output" >> "$LOGFILE"
 
   if [[ $container_probe_rc -eq 0 ]]; then
@@ -358,7 +356,7 @@ repair_nvml_mismatch() {
     log "No mismatch detected, skipping repair"
     return 0
   elif [[ $initial_status -eq 2 ]]; then
-    host_probe_output=$(nvidia-smi 2>&1 || true)
+    host_probe_output=$(nvidia-smi 2>&1) && : || :
     if _has_nvml_mismatch_signature "$host_probe_output"; then
       warn "NVIDIA host probe reports driver/library mismatch — forcing repair attempt"
       initial_status=1
@@ -459,7 +457,7 @@ apply_post_install_fixes() {
         warn "Run 'bash setup.sh --fix' to repair, or manually upgrade nvidia-driver-*"
       elif [[ $mismatch_status -eq 2 ]]; then
         local host_probe_output
-        host_probe_output=$(nvidia-smi 2>&1 || true)
+        host_probe_output=$(nvidia-smi 2>&1) && : || :
         if _has_nvml_mismatch_signature "$host_probe_output"; then
           warn "Host NVIDIA stack reports driver/library mismatch (non-fatal)"
           warn "If 'bash setup.sh --fix' cannot recover, reinstall NVIDIA driver package and reboot"
