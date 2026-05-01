@@ -274,6 +274,12 @@ detect_gpu_backend() {
   fi
 }
 
+_has_nvml_mismatch_signature() {
+  local output="${1:-}"
+  echo "$output" | grep -Eqi \
+    "driver/library version mismatch|failed to initialize nvml|nvidia-container-cli: initialization error: nvml error"
+}
+
 # ── [FIX: nvml-mismatch] NVIDIA driver/library version mismatch detection ────
 # Detects if host NVIDIA driver and container CUDA driver versions are misaligned.
 # Returns: 0 = matched, 1 = mismatched, 2 = couldn't detect
@@ -281,18 +287,40 @@ detect_gpu_backend() {
 detect_nvml_mismatch() {
   local host_driver container_cuda docker_test_image="${1:-nvidia/cuda:12.4.1-base-ubuntu22.04}"
   local test_timeout="${NVIDIA_DOCKER_TEST_TIMEOUT:-180}"
+  local host_probe_output host_probe_rc container_probe_output container_probe_rc
 
   # Get host driver version
-  host_driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>>"$LOGFILE" | head -1 | xargs || echo "")
+  host_probe_output=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>&1) && host_probe_rc=0 || host_probe_rc=$?
+  [[ -n "$host_probe_output" ]] && printf '%s\n' "$host_probe_output" >> "$LOGFILE"
+
+  if [[ $host_probe_rc -eq 0 ]]; then
+    host_driver=$(echo "$host_probe_output" | head -1 | xargs || echo "")
+  elif _has_nvml_mismatch_signature "$host_probe_output"; then
+    log "NVIDIA host probe reported NVML driver/library mismatch"
+    return 1
+  else
+    host_driver=""
+  fi
+
   if [[ -z "$host_driver" ]]; then
     log "NVIDIA driver version detection failed (non-fatal)"
     return 2
   fi
 
   # Get container CUDA driver compatibility version
-  container_cuda=$(timeout --signal=TERM "$test_timeout" \
+  container_probe_output=$(timeout --signal=TERM "$test_timeout" \
     docker run --rm --gpus all "$docker_test_image" \
-    nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>>"$LOGFILE" | head -1 | xargs || echo "")
+    nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>&1) && container_probe_rc=0 || container_probe_rc=$?
+  [[ -n "$container_probe_output" ]] && printf '%s\n' "$container_probe_output" >> "$LOGFILE"
+
+  if [[ $container_probe_rc -eq 0 ]]; then
+    container_cuda=$(echo "$container_probe_output" | head -1 | xargs || echo "")
+  elif _has_nvml_mismatch_signature "$container_probe_output"; then
+    log "NVIDIA container probe reported NVML driver/library mismatch"
+    return 1
+  else
+    container_cuda=""
+  fi
 
   if [[ -z "$container_cuda" ]]; then
     log "Container CUDA driver detection failed (non-fatal)"
@@ -319,7 +347,7 @@ detect_nvml_mismatch() {
 # Attempts to upgrade host NVIDIA driver to resolve mismatch.
 # Non-fatal: logs warnings on failure but does not halt.
 repair_nvml_mismatch() {
-  local initial_status post_repair_status
+  local initial_status post_repair_status host_probe_output
 
   log "Attempting to repair NVIDIA driver/library mismatch..."
 
@@ -328,8 +356,14 @@ repair_nvml_mismatch() {
     log "No mismatch detected, skipping repair"
     return 0
   elif [[ $initial_status -eq 2 ]]; then
-    warn "Unable to detect NVIDIA driver/library mismatch state (skipping repair)"
-    return 1
+    host_probe_output=$(nvidia-smi 2>&1) && : || :
+    if _has_nvml_mismatch_signature "$host_probe_output"; then
+      warn "NVIDIA host probe reports driver/library mismatch — forcing repair attempt"
+      initial_status=1
+    else
+      warn "Unable to detect NVIDIA driver/library mismatch state (skipping repair)"
+      return 1
+    fi
   fi
 
   # Attempt upgrade
@@ -421,6 +455,13 @@ apply_post_install_fixes() {
       if [[ $mismatch_status -eq 1 ]]; then
         warn "NVIDIA driver/library mismatch detected post-install (non-fatal)"
         warn "Run 'bash setup.sh --fix' to repair, or manually upgrade nvidia-driver-*"
+      elif [[ $mismatch_status -eq 2 ]]; then
+        local host_probe_output
+        host_probe_output=$(nvidia-smi 2>&1) && : || :
+        if _has_nvml_mismatch_signature "$host_probe_output"; then
+          warn "Host NVIDIA stack reports driver/library mismatch (non-fatal)"
+          warn "If 'bash setup.sh --fix' cannot recover, reinstall NVIDIA driver package and reboot"
+        fi
       fi
     fi
   fi
