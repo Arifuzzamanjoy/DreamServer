@@ -41,11 +41,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y shellcheck python3-yaml
           shfiles=$(find resources/p2p-gpu -type f -name '*.sh')
-          echo "$shfiles" | xargs shellcheck \
+          if ! echo "$shfiles" | xargs shellcheck \
             --exclude=SC1090,SC1091,SC2034 \
             --severity=warning \
-            --format=gcc \
-            || true
+            --format=gcc; then
+            echo "ShellCheck warnings detected (non-fatal)"
+          fi
           echo "$shfiles" | xargs shellcheck \
             --exclude=SC1090,SC1091,SC2034 \
             --severity=error
@@ -54,7 +55,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          sudo useradd -m -s /bin/bash dream || true
+          if getent passwd dream; then
+            echo "User dream already exists"
+          else
+            sudo useradd -m -s /bin/bash dream
+          fi
           sudo mkdir -p /home/dream/dream-server/{config,data/models,extensions/services,logs,scripts}
 
           sudo tee /home/dream/dream-server/.env >/dev/null <<'ENVEOF'
@@ -90,7 +95,9 @@ jobs:
           set -euo pipefail
 
           cmd="${1:-}"
-          shift || true
+          if [[ $# -gt 0 ]]; then
+            shift
+          fi
 
           case "$cmd" in
             --version)
@@ -185,3 +192,8 @@ jobs:
           sudo bash resources/p2p-gpu/setup.sh --dry-run
           sudo bash resources/p2p-gpu/setup.sh --status
           sudo bash resources/p2p-gpu/setup.sh --fix
+
+      - name: NVML mismatch repair regression
+        run: |
+          set -euo pipefail
+          bash resources/p2p-gpu/tests/test-nvml-mismatch.sh

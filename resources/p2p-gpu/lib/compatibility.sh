@@ -60,7 +60,8 @@ ensure_webui_stt_model_alignment() {
   current=$(grep -E 'AUDIO_STT_MODEL:' "$nvidia_overlay" | head -1 | sed -E 's/.*AUDIO_STT_MODEL:\s*"?(.*)"?/\1/' || echo "")
   [[ "$current" == "$model_id" ]] && return 0
 
-  sed -i -E "s|AUDIO_STT_MODEL:.*|      AUDIO_STT_MODEL: \"${model_id}\"|" "$nvidia_overlay"
+  # Preserve existing indentation to avoid corrupting YAML structure.
+  sed -i -E "s|^([[:space:]]*)AUDIO_STT_MODEL:.*|\1AUDIO_STT_MODEL: \"${model_id}\"|" "$nvidia_overlay"
   log "Aligned Open WebUI STT model to ${model_id}"
 }
 
@@ -201,7 +202,8 @@ fix_comfyui_permissions() {
 
   for d in "${dirs[@]}"; do
     mkdir -p "$d" || { warn "comfyui mkdir failed on ${d} (non-fatal)"; continue; }
-    chmod -R a+rwX "$d" || warn "comfyui chmod failed on ${d} (non-fatal)"
+    chmod 2775 "$d" && setfacl -R -d -m "u::rwx,u:$(id -u comfyui 2>/dev/null || echo 1000):rwx,g::rwx,o::rx" "$d" \
+      || warn "comfyui ACL failed on ${d} (non-fatal)"
   done
 }
 

@@ -3,7 +3,7 @@
 # DreamServer — P2P GPU Subcommand: teardown
 # ============================================================================
 # Part of: resources/p2p-gpu/subcommands/
-# Purpose: Stop all containers and background processes to halt billing
+# Purpose: Stop all containers and background processes to stop all services
 #
 # Expects: log(), warn(), err(), find_dream_dir(), get_compose_cmd(),
 #          _kill_stored_pid(), PIDFILE_DIR, SCRIPT_NAME
@@ -15,7 +15,7 @@
 set -euo pipefail
 
 cmd_teardown() {
-  step "Teardown — stopping all services to halt billing"
+  step "Teardown — stopping all services"
   local ds_dir
   ds_dir=$(find_dream_dir) || { err "DreamServer directory not found"; exit 1; }
 

@@ -14,7 +14,7 @@
 #   bash setup.sh --status     # Health check
 #   bash setup.sh --info       # Show connection URLs
 #   bash setup.sh --fix        # Apply fixes + restart (no reinstall)
-#   bash setup.sh --teardown   # Stop all services (save billing)
+#   bash setup.sh --teardown   # Stop all services
 #
 # This file sources library modules (pure functions) then runs each install
 # phase in order. Modules live under:
@@ -80,7 +80,7 @@ _print_help() {
   echo "  --status      Health check — show GPU, containers, ports"
   echo "  --info        Show connection URLs and SSH tunnel commands"
   echo "  --fix         Apply latest fixes without full re-install"
-  echo "  --teardown    Stop all services (saves billing)"
+  echo "  --teardown    Stop all services"
   echo "  --dry-run     Preview what would happen without making changes"
   echo "  --help        Show this help"
   echo ""

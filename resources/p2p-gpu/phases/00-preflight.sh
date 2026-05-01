@@ -101,11 +101,15 @@ _verify_nvidia_passthrough() {
     
     # ── [FIX: nvml-mismatch] Detect and repair driver/library mismatch ────────
     log "Checking for NVIDIA driver/library version misalignment..."
-    if ! detect_nvml_mismatch "${gpu_test_image}"; then
+    if detect_nvml_mismatch "${gpu_test_image}"; then
+      :
+    else
       mismatch_status=$?
       if [[ $mismatch_status -eq 1 ]]; then
         warn "NVIDIA driver/library mismatch detected — attempting repair"
-        repair_nvml_mismatch
+        if ! repair_nvml_mismatch; then
+          warn "NVIDIA driver mismatch repair did not complete (non-fatal)"
+        fi
       fi
     fi
     
@@ -137,11 +141,15 @@ _verify_nvidia_passthrough() {
       
       # ── [FIX: nvml-mismatch] Re-check after toolkit install ──────────────
       log "Re-checking for NVIDIA driver/library mismatch after toolkit install..."
-      if ! detect_nvml_mismatch "${gpu_test_image}"; then
+      if detect_nvml_mismatch "${gpu_test_image}"; then
+        :
+      else
         mismatch_status=$?
         if [[ $mismatch_status -eq 1 ]]; then
           warn "NVIDIA driver/library mismatch detected — attempting repair"
-          repair_nvml_mismatch
+          if ! repair_nvml_mismatch; then
+            warn "NVIDIA driver mismatch repair did not complete (non-fatal)"
+          fi
         fi
       fi
     fi

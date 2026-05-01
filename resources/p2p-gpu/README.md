@@ -11,7 +11,7 @@ One command. All 17+ services. Any NVIDIA/AMD GPU or CPU-only instance.
 # On your GPU instance (as root):
 bash setup.sh              # Full install (~10 min)
 bash setup.sh --status     # Health check
-bash setup.sh --teardown   # Stop all services (save $$$)
+bash setup.sh --teardown   # Stop all services
 ```
 
 ## Setup Guide
@@ -102,7 +102,7 @@ p2p-gpu/
 │   ├── 11-access-layer.sh      # Caddy proxy + Cloudflare tunnel + SSH
 │   └── 12-summary.sh           # Print access info
 └── subcommands/                # Alternative entry points
-    ├── teardown.sh             # Stop all services (save billing)
+    ├── teardown.sh             # Stop all services
     ├── status.sh               # Health check dashboard
     ├── resume.sh               # Quick restart after SSH drop
     ├── fix.sh                  # Apply fixes without reinstall
@@ -129,7 +129,7 @@ Aligned with DreamServer's [CLAUDE.md](../../CLAUDE.md):
 | `bash setup.sh --status` | Health check — GPU, containers, ports |
 | `bash setup.sh --info` | Show connection URLs and SSH tunnel commands |
 | `bash setup.sh --fix` | Apply latest fixes without full reinstall |
-| `bash setup.sh --teardown` | Stop all services (saves billing) |
+| `bash setup.sh --teardown` | Stop all services |
 | `bash setup.sh --dry-run` | Preview what would happen without making changes |
 
 ## Model Download and Auto-Swap

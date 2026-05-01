@@ -319,16 +319,17 @@ detect_nvml_mismatch() {
 # Attempts to upgrade host NVIDIA driver to resolve mismatch.
 # Non-fatal: logs warnings on failure but does not halt.
 repair_nvml_mismatch() {
-  local initial_state post_repair_state
-  
+  local initial_status post_repair_status
+
   log "Attempting to repair NVIDIA driver/library mismatch..."
 
-  # Capture initial state
-  initial_state=$(detect_nvml_mismatch)
-  
-  if [[ $? -eq 0 ]]; then
+  detect_nvml_mismatch && initial_status=0 || initial_status=$?
+  if [[ $initial_status -eq 0 ]]; then
     log "No mismatch detected, skipping repair"
     return 0
+  elif [[ $initial_status -eq 2 ]]; then
+    warn "Unable to detect NVIDIA driver/library mismatch state (skipping repair)"
+    return 1
   fi
 
   # Attempt upgrade
@@ -346,14 +347,20 @@ repair_nvml_mismatch() {
 
     # Verify post-repair
     sleep 2  # brief delay for driver to stabilize
-    post_repair_state=$(detect_nvml_mismatch)
-    if [[ $? -eq 0 ]]; then
+    detect_nvml_mismatch && post_repair_status=0 || post_repair_status=$?
+    if [[ $post_repair_status -eq 0 ]]; then
       log "NVIDIA driver mismatch RESOLVED after upgrade"
       return 0
-    else
+    elif [[ $post_repair_status -eq 1 ]]; then
       warn "NVIDIA driver mismatch persists after upgrade (non-fatal, manual intervention may be needed)"
       return 1
+    elif [[ $post_repair_status -eq 2 ]]; then
+      warn "Unable to verify NVIDIA driver/library mismatch after upgrade (non-fatal)"
+      return 1
     fi
+
+    warn "Unable to verify NVIDIA driver/library mismatch after upgrade (non-fatal)"
+    return 1
   else
     warn "NVIDIA driver upgrade failed (non-fatal, GPU may still work)"
     return 1
@@ -407,7 +414,9 @@ apply_post_install_fixes() {
   # ── [FIX: nvml-mismatch] Post-install NVIDIA driver check (fallback) ──────
   if [[ "$gpu_backend" == "nvidia" ]]; then
     log "Checking for NVIDIA driver/library version alignment (post-install)..."
-    if ! detect_nvml_mismatch; then
+    if detect_nvml_mismatch; then
+      :
+    else
       mismatch_status=$?
       if [[ $mismatch_status -eq 1 ]]; then
         warn "NVIDIA driver/library mismatch detected post-install (non-fatal)"

@@ -46,7 +46,7 @@ _ensure_opencode_web_running() {
   local ds_dir="$1"
   local env_file="${ds_dir}/.env"
   local opencode_bin="/home/${DREAM_USER}/.opencode/bin/opencode"
-  local opencode_port opencode_password escaped_password
+  local opencode_port opencode_password escaped_password launch_dir escaped_launch_dir
 
   opencode_port=$(env_get "$env_file" "OPENCODE_PORT")
   opencode_port="${opencode_port:-3003}"
@@ -68,10 +68,17 @@ _ensure_opencode_web_running() {
     log "Generated OPENCODE_SERVER_PASSWORD for secure OpenCode web access"
   fi
 
+  launch_dir="$ds_dir"
+  if ! su - "$DREAM_USER" -c "test -r $(printf '%q' "$ds_dir") && test -x $(printf '%q' "$ds_dir")"; then
+    launch_dir="$DREAM_HOME"
+    warn "OpenCode launch dir ${ds_dir} is not accessible to ${DREAM_USER}; using ${launch_dir}"
+  fi
+
   mkdir -p "${ds_dir}/logs"
   escaped_password=$(printf '%q' "$opencode_password")
+  escaped_launch_dir=$(printf '%q' "$launch_dir")
   if su - "$DREAM_USER" -c \
-    "cd ${ds_dir} && OPENCODE_SERVER_PASSWORD=${escaped_password} nohup ${opencode_bin} web --host 0.0.0.0 --port ${opencode_port} >> ${ds_dir}/logs/opencode-web.log 2>&1 &" \
+    "cd ${escaped_launch_dir} && OPENCODE_SERVER_PASSWORD=${escaped_password} nohup ${opencode_bin} web --hostname 0.0.0.0 --port ${opencode_port} >> ${ds_dir}/logs/opencode-web.log 2>&1 &" \
     >> "$LOGFILE" 2>&1; then
     sleep 2
     if curl -sf --max-time 4 "http://127.0.0.1:${opencode_port}/" >/dev/null 2>&1; then
@@ -353,13 +360,14 @@ _apply_host_cpu_caps() {
 _compose_up() {
   local ds_dir="$1" compose_cmd="$2" compose_flags="$3" compose_err="$4"
   shift 4
-  local ansi_flag cmd
+  local ansi_flag cmd service_args
   ansi_flag=$(_compose_ansi_flag "$compose_cmd")
   cmd="${compose_cmd}"
   [[ -n "$ansi_flag" ]] && cmd="${cmd} ${ansi_flag}"
   cmd="${cmd} ${compose_flags} up -d"
   if [[ "$#" -gt 0 ]]; then
-    cmd="${cmd} $*"
+    printf -v service_args ' %q' "$@"
+    cmd="${cmd}${service_args}"
   fi
 
   su - "$DREAM_USER" -c "cd ${ds_dir} && ${cmd}" 2>&1 \

@@ -28,8 +28,9 @@ done
 command -v ss &>/dev/null || pkgs_needed+=("iproute2")
 
 if [[ ${#pkgs_needed[@]} -gt 0 ]]; then
-  apt-get update -qq 2>>"$LOGFILE"
-  apt-get install -y -qq "${pkgs_needed[@]}" 2>>"$LOGFILE"
+  # unattended-upgrades may briefly hold dpkg lock on fresh hosts.
+  apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-300}" update -qq 2>>"$LOGFILE"
+  apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-300}" install -y -qq "${pkgs_needed[@]}" 2>>"$LOGFILE"
   log "Installed: ${pkgs_needed[*]}"
 else
   log "All dependencies already present"
