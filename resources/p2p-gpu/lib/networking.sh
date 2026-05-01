@@ -551,6 +551,6 @@ _print_commands_help() {
   echo "  bash ${SCRIPT_NAME} --info       # Connection details"
   echo "  bash ${SCRIPT_NAME} --fix        # Apply fixes + restart"
   echo "  bash ${SCRIPT_NAME} --resume     # Quick restart after SSH drop"
-  echo "  bash ${SCRIPT_NAME} --teardown   # Stop all (save billing)"
+  echo "  bash ${SCRIPT_NAME} --teardown   # Stop all services"
   echo ""
 }

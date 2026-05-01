@@ -323,13 +323,11 @@ repair_nvml_mismatch() {
 
   log "Attempting to repair NVIDIA driver/library mismatch..."
 
-  if detect_nvml_mismatch; then
+  detect_nvml_mismatch && initial_status=0 || initial_status=$?
+  if [[ $initial_status -eq 0 ]]; then
     log "No mismatch detected, skipping repair"
     return 0
-  fi
-
-  initial_status=$?
-  if [[ $initial_status -eq 2 ]]; then
+  elif [[ $initial_status -eq 2 ]]; then
     warn "Unable to detect NVIDIA driver/library mismatch state (skipping repair)"
     return 1
   fi
@@ -349,14 +347,15 @@ repair_nvml_mismatch() {
 
     # Verify post-repair
     sleep 2  # brief delay for driver to stabilize
-    if detect_nvml_mismatch; then
+    detect_nvml_mismatch && post_repair_status=0 || post_repair_status=$?
+    if [[ $post_repair_status -eq 0 ]]; then
       log "NVIDIA driver mismatch RESOLVED after upgrade"
       return 0
-    fi
-
-    post_repair_status=$?
-    if [[ $post_repair_status -eq 1 ]]; then
+    elif [[ $post_repair_status -eq 1 ]]; then
       warn "NVIDIA driver mismatch persists after upgrade (non-fatal, manual intervention may be needed)"
+      return 1
+    elif [[ $post_repair_status -eq 2 ]]; then
+      warn "Unable to verify NVIDIA driver/library mismatch after upgrade (non-fatal)"
       return 1
     fi
 

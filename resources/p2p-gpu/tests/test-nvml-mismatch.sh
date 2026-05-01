@@ -14,6 +14,13 @@ warn() { :; }
 err() { :; }
 step() { :; }
 
+assert_no_apt_call() {
+  if [[ -e "$APT_CALLED_FILE" ]]; then
+    echo "Expected repair path to skip apt-get" >&2
+    exit 1
+  fi
+}
+
 # shellcheck source=../lib/environment.sh
 source "${P2P_GPU_DIR}/lib/environment.sh"
 
@@ -49,10 +56,36 @@ chmod +x "${STUB_DIR}/apt-get" "${STUB_DIR}/systemctl" "${STUB_DIR}/service"
 sleep() { :; }
 
 if repair_nvml_mismatch; then
-  :
+  repair_status=0
+else
+  repair_status=$?
+fi
+
+if [[ "$repair_status" -ne 1 ]]; then
+  echo "Expected repair_nvml_mismatch to return 1 when mismatch persists" >&2
+  exit 1
 fi
 
 if [[ ! -s "$APT_CALLED_FILE" ]]; then
   echo "Expected repair path to invoke apt-get for NVML mismatch" >&2
   exit 1
 fi
+
+rm -f "$APT_CALLED_FILE"
+
+detect_nvml_mismatch() {
+  return 2
+}
+
+if repair_nvml_mismatch; then
+  repair_status=0
+else
+  repair_status=$?
+fi
+
+if [[ "$repair_status" -ne 1 ]]; then
+  echo "Expected repair_nvml_mismatch to return 1 when detection fails" >&2
+  exit 1
+fi
+
+assert_no_apt_call
