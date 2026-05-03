@@ -112,7 +112,7 @@ _verify_nvidia_passthrough() {
         fi
       fi
     fi
-    
+
     return 0
   else
     probe_rc=$?
