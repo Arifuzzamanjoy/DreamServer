@@ -167,7 +167,7 @@ provider-specific fixes.
 - Background process PIDs tracked in `/var/run/dreamserver-p2p-gpu/`
 - Cloudflare tokens passed via environment variables (not CLI args)
 - Binary downloads (cloudflared) verified via SHA256 checksums
-- POSIX ACLs preferred over world-writable permissions
+- POSIX ACLs required; world-writable permissions are never used
 - Multi-UID directories documented with reasons for broader access
 
 ## Related
