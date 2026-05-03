@@ -483,7 +483,7 @@ start_services() {
   normalized_ports=$(_normalize_dashboard_api_port_envs "$env_file")
   if [[ -n "$normalized_ports" ]]; then
     log "Normalized commented port env values in .env: ${normalized_ports//$'\n'/, }"
-    docker restart dream-dashboard-api >/dev/null 2>&1 || warn "dashboard-api restart failed (non-fatal)"
+    docker restart dream-dashboard-api 2>>"$LOGFILE" || warn "dashboard-api restart failed (non-fatal)"
     docker restart dream-dashboard 2>>"$LOGFILE" || warn "dashboard restart failed (non-fatal)"
   fi
 
