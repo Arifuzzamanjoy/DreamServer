@@ -299,12 +299,38 @@ setup_cloudflare_tunnel() {
   log "Cloudflare Tunnel started (PID: ${cf_pid}) — HTTPS access active"
 }
 
+# Get Vast.ai SSH connection info with proper env var handling
+_get_vastai_ssh_info() {
+  # Try to read from environment (set by Vast.ai)
+  local host_ip="${PUBLIC_IPADDR:-}"
+  local ssh_port="${VAST_TCP_PORT_22:-}"
+  
+  # If not in current environment, try to read from sourced parent env
+  # This handles cases where setup.sh was called with fresh subshell
+  if [[ -z "$host_ip" || -z "$ssh_port" ]]; then
+    # Source parent environment if available
+    if [[ -r /proc/self/environ ]]; then
+      host_ip="${host_ip:-$(tr '\0' '\n' < /proc/self/environ | grep '^PUBLIC_IPADDR=' | cut -d= -f2)}"
+      ssh_port="${ssh_port:-$(tr '\0' '\n' < /proc/self/environ | grep '^VAST_TCP_PORT_22=' | cut -d= -f2)}"
+    fi
+  fi
+  
+  # Fallback to network detection only if neither is available
+  if [[ -z "$host_ip" ]]; then
+    host_ip="$(curl -sf --max-time 3 ifconfig.me 2>/dev/null || echo '<your-vast-ip>')"
+  fi
+  if [[ -z "$ssh_port" ]]; then
+    ssh_port="22"
+  fi
+  
+  echo "${host_ip}|${ssh_port}"
+}
+
 # Generate auto-reconnecting SSH tunnel script
 generate_ssh_tunnel_script() {
   local ds_dir="$1"
   local host_ip ssh_port
-  host_ip="${PUBLIC_IPADDR:-$(curl -sf --max-time 5 ifconfig.me || echo '<your-vast-ip>')}"
-  ssh_port="${VAST_TCP_PORT_22:-22}"
+  IFS='|' read -r host_ip ssh_port <<< "$(_get_vastai_ssh_info)"
 
   local env_file="${ds_dir}/.env"
   local entry_port
@@ -352,8 +378,7 @@ generate_ssh_tunnel_script() {
 generate_powershell_tunnel_script() {
   local ds_dir="$1"
   local host_ip ssh_port
-  host_ip="${PUBLIC_IPADDR:-$(curl -sf --max-time 5 ifconfig.me || echo '<your-vast-ip>')}"
-  ssh_port="${VAST_TCP_PORT_22:-22}"
+  IFS='|' read -r host_ip ssh_port <<< "$(_get_vastai_ssh_info)"
 
   local env_file="${ds_dir}/.env"
   local entry_port
@@ -400,8 +425,7 @@ print_access_info() {
   local env_file="${ds_dir}/.env"
   local host_ip ssh_port
   local dash_api_status dashboard_status webui_status
-  host_ip="${PUBLIC_IPADDR:-$(curl -sf --max-time 5 ifconfig.me || echo '<your-vast-ip>')}"
-  ssh_port="${VAST_TCP_PORT_22:-22}"
+  IFS='|' read -r host_ip ssh_port <<< "$(_get_vastai_ssh_info)"
   dash_api_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard-api 2>/dev/null || echo "missing") # stderr expected: container may not exist
   dashboard_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard 2>/dev/null || echo "missing") # stderr expected: container may not exist
   webui_status=$(
