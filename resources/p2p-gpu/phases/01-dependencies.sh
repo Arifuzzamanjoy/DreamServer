@@ -41,9 +41,9 @@ done
 # instances. Kill it rather than waiting 300s — these are ephemeral boxes.
 if fuser /var/lib/dpkg/lock-frontend &>/dev/null; then
   log "dpkg lock held by another process — killing unattended-upgrades"
-  killall -9 unattended-upgrades apt-get dpkg 2>>"$LOGFILE" || true
+  killall -9 unattended-upgrades apt-get dpkg 2>>"$LOGFILE" || warn "killall did not find target processes (expected)"
   sleep 2
-  dpkg --configure -a 2>>"$LOGFILE" || true
+  dpkg --configure -a 2>>"$LOGFILE" || warn "dpkg --configure -a failed (non-fatal)"
 fi
 
 if [[ ${#pkgs_needed[@]} -gt 0 ]]; then
