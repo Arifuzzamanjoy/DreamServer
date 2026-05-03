@@ -16,10 +16,9 @@
 #     2. Setgid bit (2775) on directories
 #     3. Known UID overrides for services that check ownership at startup
 #
-#   [FIX: broad-chmod] Permission strategy:
+#   [FIX: shared-acl] Permission strategy:
 #     - Primary: setgid (2775) + POSIX ACLs → group-based access
-#     - Exception: multi-UID dirs (models/, searxng/) use a+rwX because
-#       multiple unrelated UIDs write and ACLs can't express "any UID"
+#     - Shared dirs get explicit per-UID ACLs for the writers we know about
 #     - setfacl is required; fail fast when unavailable
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -56,14 +55,30 @@ apply_data_acl() {
   fi
 }
 
-# [FIX: broad-chmod] Apply world-writable perms ONLY on directories where
-# multiple unrelated container UIDs write and ACLs cannot express the access
-# pattern. Each call is documented with the reason.
+# [FIX: shared-acl] Apply explicit ACLs to directories with multiple writers.
+# The caller must name the additional UIDs that need write access.
 apply_multi_uid_perms() {
   local dir="$1" reason="$2"
+  shift 2
   [[ ! -d "$dir" ]] && return 0
-  chmod -R a+rwX "$dir" || warn "shared-dir chmod on ${dir} failed (non-fatal)"
-  log "Applied shared permissions on ${dir} (reason: ${reason})"
+
+  chown -R "${DREAM_USER}:${DREAM_USER}" "$dir" || warn "chown failed on ${dir} (non-fatal)"
+  find "$dir" -type d -exec chmod 2775 {} + || warn "chmod dirs failed on ${dir} (non-fatal)"
+  find "$dir" -type f -exec chmod 0664 {} + || warn "chmod files failed on ${dir} (non-fatal)"
+
+  if ! command -v setfacl &>/dev/null; then
+    err "setfacl unavailable — install with: apt-get install acl"
+    exit 1
+  fi
+
+  local acl_suffix=""
+  if [[ $# -gt 0 ]]; then
+    acl_suffix=",$*"
+  fi
+
+  setfacl -R -d -m "u::rwx,g::rwx,o::rx${acl_suffix}" "$dir" || warn "shared-dir default ACL failed on ${dir} (non-fatal)"
+  setfacl -R -m "u::rwx,g::rwx${acl_suffix}" "$dir" || warn "shared-dir ACL failed on ${dir} (non-fatal)"
+  log "Applied shared ACLs on ${dir} (reason: ${reason})"
 }
 
 # Extract numeric UID from a compose.yaml user: directive
@@ -136,9 +151,9 @@ _fix_uid_exceptions() {
     chown -R 1000:1000 "${data_dir}/qdrant" || warn "qdrant ownership fix failed (non-fatal)"
   fi
 
-  # searxng: uid varies by image version (977 or 1000) — multi-UID, needs shared perms
+  # searxng: uid varies by image version (977 or 1000) — grant both known UIDs
   if [[ -d "${data_dir}/searxng" ]]; then
-    apply_multi_uid_perms "${data_dir}/searxng" "uid varies by image version (977/1000)" # ACLs cannot encode cross-version UID drift on existing files.
+    apply_multi_uid_perms "${data_dir}/searxng" "uid varies by image version (977/1000)" "u:977:rwx,u:1000:rwx"
   fi
 
   # comfyui: AMD vs NVIDIA layout
@@ -167,9 +182,9 @@ _fix_uid_exceptions() {
     setfacl -m u:1000:rw "${ds_dir}/.env" || warn ".env ACL for dashboard-api failed (non-fatal)"
   fi
 
-  # models (shared): llama-server (root), comfyui, aria2c (root) all write here
+  # models (shared): grant the non-root writer used by the p2p-gpu toolkit
   if [[ -d "${data_dir}/models" ]]; then
-    apply_multi_uid_perms "${data_dir}/models" "multi-service write: llama-server, comfyui, aria2c" # ACLs cannot represent unbounded uploader/runtime UID combinations.
+    apply_multi_uid_perms "${data_dir}/models" "multi-service write: llama-server, comfyui, aria2c" "u:1000:rwx"
   fi
 }
 
@@ -266,9 +281,11 @@ ${uid_fix_lines}
 [[ -d "\${DATA_DIR}/whisper" ]] && chown -R 1000:1000 "\${DATA_DIR}/whisper" || warn "whisper chown failed (non-fatal)"
 [[ -d "\${DATA_DIR}/whisper" ]] && setfacl -R -d -m "u::rwx,u:0:rwx,u:1000:rwx,g::rwx,o::rx" "\${DATA_DIR}/whisper" || warn "whisper default ACL fix failed (non-fatal)"
 [[ -d "\${DATA_DIR}/whisper" ]] && setfacl -R -m "u:0:rwx,u:1000:rwx,g::rwx" "\${DATA_DIR}/whisper" || warn "whisper ACL fix failed (non-fatal)"
-# Multi-UID directories: searxng (uid varies), models (llama+comfyui+aria2c write)
-[[ -d "\${DATA_DIR}/searxng" ]] && chmod -R a+rwX "\${DATA_DIR}/searxng" || warn "searxng fix failed (non-fatal)"
-[[ -d "\${DATA_DIR}/models" ]] && chmod -R a+rwX "\${DATA_DIR}/models" || warn "models fix failed (non-fatal)"
+# Multi-UID directories: searxng (uid varies), models (non-root writer)
+[[ -d "\${DATA_DIR}/searxng" ]] && setfacl -R -d -m "u::rwx,u:977:rwx,u:1000:rwx,g::rwx,o::rx" "\${DATA_DIR}/searxng" || warn "searxng default ACL fix failed (non-fatal)"
+[[ -d "\${DATA_DIR}/searxng" ]] && setfacl -R -m "u:977:rwx,u:1000:rwx,g::rwx" "\${DATA_DIR}/searxng" || warn "searxng ACL fix failed (non-fatal)"
+[[ -d "\${DATA_DIR}/models" ]] && setfacl -R -d -m "u::rwx,u:1000:rwx,g::rwx,o::rx" "\${DATA_DIR}/models" || warn "models default ACL fix failed (non-fatal)"
+[[ -d "\${DATA_DIR}/models" ]] && setfacl -R -m "u:1000:rwx,g::rwx" "\${DATA_DIR}/models" || warn "models ACL fix failed (non-fatal)"
 
 for d in \
   "\${DATA_DIR}/comfyui/models" \

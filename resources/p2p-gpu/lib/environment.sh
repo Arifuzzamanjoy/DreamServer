@@ -370,7 +370,7 @@ repair_nvml_mismatch() {
   log "Running apt-get update && apt-get install --only-upgrade nvidia-driver-*"
   if apt-get update -qq 2>>"$LOGFILE" && apt-get install -y -qq --only-upgrade "nvidia-driver-*" 2>>"$LOGFILE"; then
     log "NVIDIA driver upgrade completed"
-    
+
     # Restart Docker to recognize new driver
     log "Restarting Docker daemon to recognize upgraded driver..."
     if systemctl restart docker 2>>"$LOGFILE" || service docker restart 2>>"$LOGFILE"; then
