@@ -28,9 +28,12 @@ cmd_resume() {
 
   apply_post_install_fixes "$ds_dir" "$gpu_backend"
   start_services "$ds_dir"
+  print_access_info "$ds_dir"
+
+  # Keep the remaining resume steps after the access summary so a later
+  # optional failure does not hide the URLs and commands from the terminal.
   ensure_whisper_asr_model "$ds_dir"
   ensure_tts_model_ready "$ds_dir"
   generate_ssh_tunnel_script "$ds_dir"
   generate_powershell_tunnel_script "$ds_dir"
-  print_access_info "$ds_dir"
 }

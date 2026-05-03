@@ -126,50 +126,7 @@ discover_all_services() {
     [[ ! -d "$ext_root" ]] && continue
     for manifest in "${ext_root}"/*/manifest.yaml; do
       [[ ! -f "$manifest" ]] && continue
-      python3 -c "
-import os, yaml, sys
-_HINTS_CACHE = None
-def _load_hints(path):
-    global _HINTS_CACHE
-    if _HINTS_CACHE is not None:
-        return _HINTS_CACHE
-    try:
-        loaded = yaml.safe_load(open(path)) or {}
-        _HINTS_CACHE = loaded if isinstance(loaded, dict) else {}
-    except (yaml.YAMLError, OSError) as e:
-        print(f'Service hints read failed {path}: {e}', file=sys.stderr)
-        _HINTS_CACHE = {}
-    return _HINTS_CACHE
-try:
-    data = yaml.safe_load(open(sys.argv[1]))
-    svc = data.get('service') or {}
-    sid      = svc.get('id', '')
-    port_env = svc.get('external_port_env', '')
-    port_def = svc.get('external_port_default', '')
-    name     = svc.get('name', sid)
-    cat      = svc.get('category', 'optional')
-    hints_path = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else os.path.join(
-        os.path.dirname(os.path.dirname(sys.argv[1])),
-        'resources', 'p2p-gpu', 'config', 'service-hints.yaml'
-    )
-    hints = {}
-    if sid:
-        hints = _load_hints(hints_path).get(sid, {})
-        if not isinstance(hints, dict):
-            hints = {}
-    proxy    = hints.get('proxy_mode', svc.get('proxy_mode', 'simple'))
-    startup  = hints.get('startup_behavior', svc.get('startup_behavior', 'normal'))
-    cname    = svc.get('container_name', '')
-    htimeout = svc.get('health_timeout', 0)
-    if startup == 'normal' and isinstance(htimeout, (int, float)) and htimeout > 20:
-        startup = 'heavy'
-    if sid:
-        print(f'{sid}|{port_env}|{port_def}|{name}|{cat}|{proxy}|{startup}|{cname}')
-except yaml.YAMLError as e:
-    print(f'YAML parse error in {sys.argv[1]}: {e}', file=sys.stderr)
-except OSError as e:
-    print(f'File read error {sys.argv[1]}: {e}', file=sys.stderr)
-" "$manifest" "$hints_file" || warn "service discovery failed for ${manifest} (non-fatal)"
+          python3 -c "import os, yaml, sys; data = yaml.safe_load(open(sys.argv[1])) or {}; svc = data.get('service') or {}; sid = svc.get('id', ''); port_env = svc.get('external_port_env', ''); port_def = svc.get('external_port_default', ''); name = svc.get('name', sid); cat = svc.get('category', 'optional'); hints = {}; hints_path = sys.argv[2] if len(sys.argv) > 2 else ''; hints = ((yaml.safe_load(open(hints_path)) or {}).get(sid, {}) if (hints_path and os.path.exists(hints_path) and sid) else {}); proxy = hints.get('proxy_mode', svc.get('proxy_mode', 'simple')); startup = hints.get('startup_behavior', svc.get('startup_behavior', 'normal')); cname = svc.get('container_name', ''); htimeout = svc.get('health_timeout', 0); startup = 'heavy' if startup == 'normal' and isinstance(htimeout, (int, float)) and htimeout > 20 else startup; print(f'{sid}|{port_env}|{port_def}|{name}|{cat}|{proxy}|{startup}|{cname}') if sid else None" "$manifest" "$hints_file" || warn "service discovery failed for ${manifest} (non-fatal)"
     done
   done
 }
@@ -195,7 +152,9 @@ discover_service_ports() {
   [[ ! -f "$source_file" ]] && return 0
 
   # Emit ports explicitly set in .env
-  grep -E '^[A-Z_]+_PORT=' "$source_file" | while IFS='=' read -r key value; do
+  {
+    grep -E '^[A-Z_]+_PORT=' "$source_file" 2>/dev/null || true
+  } | while IFS='=' read -r key value; do
     value=$(echo "$value" | sed 's/[[:space:]]#.*$//' | tr -d '"' | tr -d "'" | xargs)
     [[ -z "$value" ]] && continue
     local label="${PORT_LABELS[$key]:-$key}"
@@ -205,7 +164,7 @@ discover_service_ports() {
   # Track which keys were already emitted
   while IFS='=' read -r key _; do
     SEEN_KEYS["$key"]=1
-  done < <(grep -E '^[A-Z_]+_PORT=' "$source_file")
+  done < <(grep -E '^[A-Z_]+_PORT=' "$source_file" 2>/dev/null || true)
 
   # Fill in manifest defaults for services not in .env
   for key in "${!PORT_DEFAULTS[@]}"; do
