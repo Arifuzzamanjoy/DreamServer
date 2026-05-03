@@ -118,7 +118,7 @@ Aligned with DreamServer's [CLAUDE.md](../../CLAUDE.md):
 - **Pure Functions** — libs have no side effects; phases are the imperative shell
 - **Manifest-Driven** — services auto-discovered from extension manifests (no hardcoded lists)
 - **PID-file tracking** — background processes tracked safely (no `pkill -f`)
-- **ACL-primary permissions** — setgid + POSIX ACLs required (hard fail if unavailable); `chmod a+rwX` only for documented multi-UID directories where ACLs cannot express the pattern
+- **ACL-primary permissions** — setgid + POSIX ACLs required (hard fail if unavailable; no world-writable fallback)
 
 ## Commands
 
