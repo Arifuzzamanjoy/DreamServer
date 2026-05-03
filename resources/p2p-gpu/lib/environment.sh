@@ -492,15 +492,18 @@ _apply_compatibility_fixes() {
 
 _apply_env_defaults() {
   local ds_dir="$1" env_file="$2" data_dir="$3"
-  [[ ! -f "$env_file" ]] && return 0
 
-  # Fix .env ownership and permissions (fatal if fails — compose cannot start without readable .env)
-  if [[ -O "$env_file" ]] || [[ "$(stat -c '%U' "$env_file" 2>/dev/null || echo root)" != "root" ]]; then
-    if [[ "$(stat -c '%a' "$env_file" 2>/dev/null)" != "660" ]]; then
+  # Fix .env ownership and permissions if file exists (fatal if fails — compose cannot start without readable .env)
+  if [[ -f "$env_file" ]]; then
+    # Check and fix ownership independently
+    if [[ "$(stat -c '%U' "$env_file" 2>/dev/null || echo root)" != "${DREAM_USER}" ]]; then
       chown "${DREAM_USER}:${DREAM_USER}" "$env_file" || {
-        err ".env is not readable by ${DREAM_USER} and chown failed — Docker Compose cannot start"
+        err ".env ownership fix failed — Docker Compose cannot start"
         exit 1
       }
+    fi
+    # Check and fix mode independently
+    if [[ "$(stat -c '%a' "$env_file" 2>/dev/null)" != "660" ]]; then
       chmod 0660 "$env_file" || {
         err ".env chmod to 0660 failed — Docker Compose cannot start"
         exit 1
