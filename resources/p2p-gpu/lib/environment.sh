@@ -471,6 +471,12 @@ _apply_permission_fixes() {
   ensure_acl_tools
   precreate_extension_data_dirs "$ds_dir"
   apply_data_acl "$data_dir"
+  mkdir -p "${data_dir}/librechat/images" \
+    "${data_dir}/librechat/logs" \
+    "${data_dir}/librechat/uploads" \
+    "${data_dir}/librechat/mongodb" \
+    "${data_dir}/librechat/meilisearch"
+  apply_data_acl "${data_dir}/librechat" || warn "ACL on librechat/ failed (non-fatal)"
   fix_known_uid_requirements "$data_dir" "$gpu_backend"
   configure_dream_umask
   create_permission_fix_script "$ds_dir"
@@ -546,8 +552,14 @@ _apply_env_defaults() {
   # Generate or replace hard-required secrets (compose uses ${VAR:?error} syntax)
   _replace_changeme "WEBUI_SECRET" "$(openssl rand -hex 32)"
   _replace_changeme "SEARXNG_SECRET" "$(openssl rand -hex 32)"
+  _replace_changeme "JWT_SECRET" "$(openssl rand -hex 32)"
+  _replace_changeme "JWT_REFRESH_SECRET" "$(openssl rand -hex 32)"
   _replace_changeme "LITELLM_KEY" "sk-dream-$(openssl rand -hex 16)"
   _replace_changeme "N8N_PASS" "$(openssl rand -hex 16)"
+  _replace_changeme "LIBRECHAT_MONGO_PASSWORD" "$(openssl rand -hex 16)"
+  _replace_changeme "LIBRECHAT_MEILI_KEY" "$(openssl rand -hex 16)"
+  _replace_changeme "CREDS_KEY" "$(openssl rand -hex 16)"
+  _replace_changeme "CREDS_IV" "$(openssl rand -hex 16)"
   _replace_changeme "LIVEKIT_API_KEY" "$(openssl rand -hex 16)"
   _replace_changeme "LIVEKIT_API_SECRET" "$(openssl rand -hex 32)"
   _replace_changeme "DIFY_SECRET_KEY" "$(openssl rand -hex 32)"
