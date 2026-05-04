@@ -136,19 +136,25 @@ Aligned with DreamServer's [CLAUDE.md](../../CLAUDE.md):
 
 - Setup starts quickly on a small model, downloads the GPU-tier model in background, then auto-swaps when ready.
 - Swap updates both `GGUF_FILE` and `LLM_MODEL`, then restarts dependent services.
-- Dashboard model downloads (`/models` page) require the Dream host agent; setup now auto-starts it during service startup.
+- **Dashboard model downloads (`/models` page) automatically enabled** — setup now:
+  - Installs systemd service file for the host agent with proper configuration
+  - Sets `DREAM_AGENT_BIND=127.0.0.1` for reliable localhost-only access
+  - Enables systemd user session persistence (`loginctl linger`)
+  - Starts the agent during phase 09 (Services startup)
 
+**If you see "Failed to start download":**
+- Agent may still be starting — wait a few seconds and try again
+- Check agent status: `su - dream -c 'cd /home/dream/dream-server && DREAM_HOME=/home/dream/dream-server ./dream-cli agent status'`
+- Check agent logs: `tail -f /home/dream/dream-server/data/dream-host-agent.log`
+
+**Manual model swap (advanced):**
 ```bash
 MODEL="Qwen3-30B-A3B-Q4_K_M.gguf"; DS_DIR="${DS_DIR:-/home/dream/dream-server}"; LLM_MODEL="$(echo "$MODEL" | sed -E 's/\.(gguf|GGUF)$//' | sed -E 's/-Q[0-9]+([._][A-Za-z0-9]+)*$//' | tr '[:upper:]' '[:lower:]')"; cd "$DS_DIR" && sed -i "s|^GGUF_FILE=.*|GGUF_FILE=${MODEL}|" .env && { grep -q '^LLM_MODEL=' .env && sed -i "s|^LLM_MODEL=.*|LLM_MODEL=${LLM_MODEL}|" .env || echo "LLM_MODEL=${LLM_MODEL}" >> .env; } && docker compose $(cat .compose-flags 2>/dev/null) up -d llama-server && for c in dream-dreamforge dream-openclaw dream-dashboard-api dream-webui; do docker ps --format '{{.Names}}' | grep -qx "$c" && docker restart "$c" >/dev/null || echo "[warn] ${c} restart failed (non-fatal)" >&2; done
 ```
 
+**Monitor background model download:**
 ```bash
 tail -f /home/dream/dream-server/logs/aria2c-download.log
-```
-
-```bash
-# If Dashboard shows "Failed to start download"
-su - dream -c 'cd /home/dream/dream-server && DREAM_HOME=/home/dream/dream-server ./dream-cli agent start'
 ```
 
 ## Provider Support

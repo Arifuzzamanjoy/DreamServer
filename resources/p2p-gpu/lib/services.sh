@@ -22,22 +22,76 @@
 
 set -euo pipefail
 
-# Ensure Dream host agent is running so Dashboard model downloads can start.
+# [FIX: host-agent] Install systemd service, configure binding, and start agent.
+# Ensures Dashboard model downloads work by setting up host agent with proper:
+#   - systemd service file installation (with placeholder substitution)
+#   - localhost binding (DREAM_AGENT_BIND=127.0.0.1)
+#   - user session persistence (loginctl linger)
 _ensure_host_agent_running() {
   local ds_dir="$1"
-  local dream_cli="${ds_dir}/dream-cli"
+  local agent_script="${ds_dir}/bin/dream-host-agent.py"
+  local service_template="${ds_dir}/scripts/systemd/dream-host-agent.service"
+  local dream_agent_port="${DREAM_AGENT_PORT:-7710}"
+  local env_file="${ds_dir}/.env"
 
-  if [[ ! -x "$dream_cli" ]]; then
-    warn "dream-cli not found at ${dream_cli} — skipping host agent auto-start"
+  if [[ ! -f "$agent_script" ]]; then
+    warn "Host agent script not found at ${agent_script} — skipping agent setup"
     return 0
   fi
 
-  if su - "$DREAM_USER" -c "cd ${ds_dir} && DREAM_HOME=${ds_dir} ./dream-cli agent start" \
-    >> "$LOGFILE" 2>&1; then
-    log "Ensured Dream host agent is started"
-  else
-    warn "Dream host agent auto-start failed — model download from Dashboard may fail"
-    warn "Run manually: su - ${DREAM_USER} -c 'cd ${ds_dir} && DREAM_HOME=${ds_dir} ./dream-cli agent start'"
+  # Step 1: Ensure localhost binding to avoid Docker bridge detection issues
+  # (agent auto-detects Docker bridge and binds there; force localhost for reliability)
+  if ! grep -q "^DREAM_AGENT_BIND=" "$env_file" 2>/dev/null; then
+    env_set "$env_file" "DREAM_AGENT_BIND" "127.0.0.1"
+    log "Set DREAM_AGENT_BIND=127.0.0.1 in .env for reliable local access"
+  fi
+
+  # Step 2: Install systemd service for dream user (with placeholder substitution)
+  local systemd_dir
+  systemd_dir=$(su - "$DREAM_USER" -c 'echo ~/.config/systemd/user' 2>/dev/null || echo "/home/${DREAM_USER}/.config/systemd/user")
+  
+  if su - "$DREAM_USER" -c "mkdir -p ${systemd_dir}" 2>>"$LOGFILE"; then
+    if [[ -f "$service_template" ]]; then
+      # Read template and substitute placeholders
+      local service_content
+      service_content=$(cat "$service_template")
+      service_content="${service_content//__PYTHON3__/\/usr\/bin\/python3}"
+      service_content="${service_content//__INSTALL_DIR__/${ds_dir//\//\\/}}"
+      service_content="${service_content//__INSTALL_USER__/${DREAM_USER}}"
+      service_content="${service_content//__HOME__/\/home\/${DREAM_USER}}"
+      # Use default.target for user sessions instead of multi-user.target
+      service_content="${service_content//WantedBy=multi-user.target/WantedBy=default.target}"
+      
+      # Write to dream user's systemd directory
+      su - "$DREAM_USER" -c "cat > ${systemd_dir}/dream-host-agent.service" <<< "$service_content" 2>>"$LOGFILE" && \
+        log "Installed systemd service for host agent" || \
+        warn "Failed to install systemd service (non-fatal)"
+    fi
+  fi
+
+  # Step 3: Enable systemd user session persistence (loginctl linger)
+  if command -v loginctl &>/dev/null; then
+    loginctl enable-linger "$DREAM_USER" 2>>"$LOGFILE" || \
+      warn "loginctl linger enable failed (non-fatal — will try fallback)"
+  fi
+
+  # Step 4: Start the agent via dream-cli (tries systemd first, falls back to nohup)
+  if [[ -x "${ds_dir}/dream-cli" ]]; then
+    if su - "$DREAM_USER" -c "cd ${ds_dir} && DREAM_HOME=${ds_dir} ./dream-cli agent start" \
+      >> "$LOGFILE" 2>&1; then
+      log "Ensured Dream host agent is started (systemd or background)"
+      
+      # Quick health check
+      sleep 2
+      if curl -sf --max-time 2 "http://127.0.0.1:${dream_agent_port}/health" > /dev/null 2>&1; then
+        log "Host agent health check passed"
+      else
+        warn "Host agent not yet responding on localhost:${dream_agent_port} — may still be starting"
+      fi
+    else
+      warn "Dream host agent auto-start failed — model download from Dashboard may fail"
+      warn "Run manually: su - ${DREAM_USER} -c 'cd ${ds_dir} && DREAM_HOME=${ds_dir} ./dream-cli agent status'"
+    fi
   fi
 }
 
