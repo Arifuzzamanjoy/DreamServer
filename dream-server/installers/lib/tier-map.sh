@@ -60,6 +60,7 @@ set_qwen_tier_config() {
             GGUF_SHA256=""
             MAX_CONTEXT=200000
             LLM_MODEL_SIZE_MB=0
+            SPEC_TYPE=""
             ;;
         ARC)
             # Intel Arc A770 (16 GB) and future Arc B-series (≥12 GB VRAM)
@@ -73,6 +74,7 @@ set_qwen_tier_config() {
             LLM_MODEL_SIZE_MB=5760    # Qwen3.5-9B-Q4_K_M (5.68 GB)
             GPU_BACKEND="sycl"
             N_GPU_LAYERS=99
+            SPEC_TYPE="${SPEC_TYPE:-ngram-simple}"
             ;;
         ARC_LITE)
             # Intel Arc A750 (8 GB), A380 (6 GB) — smaller VRAM, lighter model
@@ -86,6 +88,7 @@ set_qwen_tier_config() {
             LLM_MODEL_SIZE_MB=2870    # Qwen3.5-4B-Q4_K_M (2.74 GB)
             GPU_BACKEND="sycl"
             N_GPU_LAYERS=99
+            SPEC_TYPE="${SPEC_TYPE:-ngram-simple}"
             ;;
         NV_ULTRA)
             TIER_NAME="NVIDIA Ultra (90GB+)"
@@ -95,6 +98,10 @@ set_qwen_tier_config() {
             GGUF_SHA256="9e6032d2f3b50a60f17ce8bf5a1d85c71af9b53b89c7978020ae7c660f29b090"
             MAX_CONTEXT=131072
             LLM_MODEL_SIZE_MB=48500   # 48.5 GB per HF file listing
+            SPEC_TYPE="${SPEC_TYPE:-ngram-mod}"
+            SPEC_NGRAM_MOD_N_MATCH="${SPEC_NGRAM_MOD_N_MATCH:-24}"
+            SPEC_NGRAM_MOD_N_MIN="${SPEC_NGRAM_MOD_N_MIN:-48}"
+            SPEC_NGRAM_MOD_N_MAX="${SPEC_NGRAM_MOD_N_MAX:-64}"
             ;;
         SH_LARGE)
             TIER_NAME="Strix Halo 90+"
@@ -104,6 +111,10 @@ set_qwen_tier_config() {
             GGUF_SHA256="9e6032d2f3b50a60f17ce8bf5a1d85c71af9b53b89c7978020ae7c660f29b090"
             MAX_CONTEXT=131072
             LLM_MODEL_SIZE_MB=48500   # 48.5 GB per HF file listing
+            SPEC_TYPE="${SPEC_TYPE:-ngram-mod}"
+            SPEC_NGRAM_MOD_N_MATCH="${SPEC_NGRAM_MOD_N_MATCH:-24}"
+            SPEC_NGRAM_MOD_N_MIN="${SPEC_NGRAM_MOD_N_MIN:-48}"
+            SPEC_NGRAM_MOD_N_MAX="${SPEC_NGRAM_MOD_N_MAX:-64}"
             ;;
         SH_COMPACT)
             TIER_NAME="Strix Halo Compact"
@@ -113,6 +124,10 @@ set_qwen_tier_config() {
             GGUF_SHA256="9f1a24700a339b09c06009b729b5c809e0b64c213b8af5b711b3dbdfd0c5ba48"
             MAX_CONTEXT=131072
             LLM_MODEL_SIZE_MB=18600   # 18.6 GB per HF file listing
+            SPEC_TYPE="${SPEC_TYPE:-ngram-mod}"
+            SPEC_NGRAM_MOD_N_MATCH="${SPEC_NGRAM_MOD_N_MATCH:-24}"
+            SPEC_NGRAM_MOD_N_MIN="${SPEC_NGRAM_MOD_N_MIN:-48}"
+            SPEC_NGRAM_MOD_N_MAX="${SPEC_NGRAM_MOD_N_MAX:-64}"
             ;;
         0)
             TIER_NAME="Lightweight"
@@ -122,6 +137,7 @@ set_qwen_tier_config() {
             GGUF_SHA256=""
             MAX_CONTEXT=8192
             LLM_MODEL_SIZE_MB=1500    # Qwen3.5-2B-Q4_K_M (1.28 GB)
+            SPEC_TYPE="${SPEC_TYPE:-ngram-simple}"
             ;;
         1)
             TIER_NAME="Entry Level"
@@ -131,6 +147,7 @@ set_qwen_tier_config() {
             GGUF_SHA256="03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
             MAX_CONTEXT=16384
             LLM_MODEL_SIZE_MB=5760    # Qwen3.5-9B-Q4_K_M (5.68 GB)
+            SPEC_TYPE="${SPEC_TYPE:-ngram-simple}"
             ;;
         2)
             TIER_NAME="Prosumer"
@@ -140,6 +157,7 @@ set_qwen_tier_config() {
             GGUF_SHA256="03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
             MAX_CONTEXT=32768
             LLM_MODEL_SIZE_MB=5760    # Qwen3.5-9B-Q4_K_M (5.68 GB)
+            SPEC_TYPE="${SPEC_TYPE:-ngram-simple}"
             ;;
         3)
             TIER_NAME="Pro"
@@ -149,6 +167,10 @@ set_qwen_tier_config() {
             GGUF_SHA256="9f1a24700a339b09c06009b729b5c809e0b64c213b8af5b711b3dbdfd0c5ba48"
             MAX_CONTEXT=32768
             LLM_MODEL_SIZE_MB=18600   # Qwen3-30B-A3B-Q4_K_M MoE (18.6 GB)
+            SPEC_TYPE="${SPEC_TYPE:-ngram-mod}"
+            SPEC_NGRAM_MOD_N_MATCH="${SPEC_NGRAM_MOD_N_MATCH:-24}"
+            SPEC_NGRAM_MOD_N_MIN="${SPEC_NGRAM_MOD_N_MIN:-48}"
+            SPEC_NGRAM_MOD_N_MAX="${SPEC_NGRAM_MOD_N_MAX:-64}"
             ;;
         4)
             TIER_NAME="Enterprise"
@@ -158,6 +180,10 @@ set_qwen_tier_config() {
             GGUF_SHA256="9f1a24700a339b09c06009b729b5c809e0b64c213b8af5b711b3dbdfd0c5ba48"
             MAX_CONTEXT=131072
             LLM_MODEL_SIZE_MB=18600   # 18.6 GB per HF file listing
+            SPEC_TYPE="${SPEC_TYPE:-ngram-mod}"
+            SPEC_NGRAM_MOD_N_MATCH="${SPEC_NGRAM_MOD_N_MATCH:-24}"
+            SPEC_NGRAM_MOD_N_MIN="${SPEC_NGRAM_MOD_N_MIN:-48}"
+            SPEC_NGRAM_MOD_N_MAX="${SPEC_NGRAM_MOD_N_MAX:-64}"
             ;;
         *)
             error "Invalid tier: $TIER. Valid tiers: 0, 1, 2, 3, 4, CLOUD, NV_ULTRA, SH_LARGE, SH_COMPACT, ARC, ARC_LITE"
@@ -176,6 +202,7 @@ set_gemma4_tier_config() {
             GGUF_SHA256=""
             MAX_CONTEXT=200000
             LLM_MODEL_SIZE_MB=0
+            SPEC_TYPE=""
             ;;
         ARC)
             TIER_NAME="Intel Arc"
@@ -187,6 +214,7 @@ set_gemma4_tier_config() {
             LLM_MODEL_SIZE_MB=5340
             GPU_BACKEND="sycl"
             N_GPU_LAYERS=99
+            SPEC_TYPE="${SPEC_TYPE:-ngram-simple}"
             ;;
         ARC_LITE)
             TIER_NAME="Intel Arc Lite"
@@ -198,6 +226,7 @@ set_gemma4_tier_config() {
             LLM_MODEL_SIZE_MB=2810
             GPU_BACKEND="sycl"
             N_GPU_LAYERS=99
+            SPEC_TYPE="${SPEC_TYPE:-ngram-simple}"
             ;;
         NV_ULTRA)
             TIER_NAME="NVIDIA Ultra (90GB+)"
@@ -207,6 +236,10 @@ set_gemma4_tier_config() {
             GGUF_SHA256=""
             MAX_CONTEXT=131072
             LLM_MODEL_SIZE_MB=19800
+            SPEC_TYPE="${SPEC_TYPE:-ngram-mod}"
+            SPEC_NGRAM_MOD_N_MATCH="${SPEC_NGRAM_MOD_N_MATCH:-24}"
+            SPEC_NGRAM_MOD_N_MIN="${SPEC_NGRAM_MOD_N_MIN:-48}"
+            SPEC_NGRAM_MOD_N_MAX="${SPEC_NGRAM_MOD_N_MAX:-64}"
             ;;
         SH_LARGE)
             TIER_NAME="Strix Halo 90+"
@@ -216,6 +249,10 @@ set_gemma4_tier_config() {
             GGUF_SHA256=""
             MAX_CONTEXT=131072
             LLM_MODEL_SIZE_MB=19800
+            SPEC_TYPE="${SPEC_TYPE:-ngram-mod}"
+            SPEC_NGRAM_MOD_N_MATCH="${SPEC_NGRAM_MOD_N_MATCH:-24}"
+            SPEC_NGRAM_MOD_N_MIN="${SPEC_NGRAM_MOD_N_MIN:-48}"
+            SPEC_NGRAM_MOD_N_MAX="${SPEC_NGRAM_MOD_N_MAX:-64}"
             ;;
         SH_COMPACT)
             TIER_NAME="Strix Halo Compact"
@@ -225,6 +262,10 @@ set_gemma4_tier_config() {
             GGUF_SHA256=""
             MAX_CONTEXT=65536
             LLM_MODEL_SIZE_MB=18000
+            SPEC_TYPE="${SPEC_TYPE:-ngram-mod}"
+            SPEC_NGRAM_MOD_N_MATCH="${SPEC_NGRAM_MOD_N_MATCH:-24}"
+            SPEC_NGRAM_MOD_N_MIN="${SPEC_NGRAM_MOD_N_MIN:-48}"
+            SPEC_NGRAM_MOD_N_MAX="${SPEC_NGRAM_MOD_N_MAX:-64}"
             ;;
         0)
             # Keep the current tiny bootstrap-friendly Qwen path for the absolute minimum tier.
@@ -235,6 +276,7 @@ set_gemma4_tier_config() {
             GGUF_SHA256=""
             MAX_CONTEXT=8192
             LLM_MODEL_SIZE_MB=1500
+            SPEC_TYPE="${SPEC_TYPE:-ngram-simple}"
             ;;
         1)
             TIER_NAME="Entry Level"
@@ -244,6 +286,7 @@ set_gemma4_tier_config() {
             GGUF_SHA256=""
             MAX_CONTEXT=16384
             LLM_MODEL_SIZE_MB=2810
+            SPEC_TYPE="${SPEC_TYPE:-ngram-simple}"
             ;;
         2)
             TIER_NAME="Prosumer"
@@ -253,6 +296,7 @@ set_gemma4_tier_config() {
             GGUF_SHA256=""
             MAX_CONTEXT=32768
             LLM_MODEL_SIZE_MB=5340
+            SPEC_TYPE="${SPEC_TYPE:-ngram-simple}"
             ;;
         3)
             TIER_NAME="Pro"
@@ -262,6 +306,10 @@ set_gemma4_tier_config() {
             GGUF_SHA256=""
             MAX_CONTEXT=16384
             LLM_MODEL_SIZE_MB=18000
+            SPEC_TYPE="${SPEC_TYPE:-ngram-mod}"
+            SPEC_NGRAM_MOD_N_MATCH="${SPEC_NGRAM_MOD_N_MATCH:-24}"
+            SPEC_NGRAM_MOD_N_MIN="${SPEC_NGRAM_MOD_N_MIN:-48}"
+            SPEC_NGRAM_MOD_N_MAX="${SPEC_NGRAM_MOD_N_MAX:-64}"
             ;;
         4)
             TIER_NAME="Enterprise"
@@ -271,6 +319,10 @@ set_gemma4_tier_config() {
             GGUF_SHA256=""
             MAX_CONTEXT=65536
             LLM_MODEL_SIZE_MB=19800
+            SPEC_TYPE="${SPEC_TYPE:-ngram-mod}"
+            SPEC_NGRAM_MOD_N_MATCH="${SPEC_NGRAM_MOD_N_MATCH:-24}"
+            SPEC_NGRAM_MOD_N_MIN="${SPEC_NGRAM_MOD_N_MIN:-48}"
+            SPEC_NGRAM_MOD_N_MAX="${SPEC_NGRAM_MOD_N_MAX:-64}"
             ;;
         *)
             error "Invalid tier: $TIER. Valid tiers: 0, 1, 2, 3, 4, CLOUD, NV_ULTRA, SH_LARGE, SH_COMPACT, ARC, ARC_LITE"

@@ -50,6 +50,14 @@ services:
       - --metrics
     environment:
       - LLAMA_ARG_REASONING=${LLAMA_REASONING:-off}
+      # Speculative decoding - tier-map sets these via .env; empty = disabled.
+      # Forward-compatible: activates when llama.cpp image is bumped to b9014+.
+      - LLAMA_ARG_SPEC_TYPE=${SPEC_TYPE:-}
+      - LLAMA_ARG_SPEC_NGRAM_MOD_N_MATCH=${SPEC_NGRAM_MOD_N_MATCH:-}
+      - LLAMA_ARG_SPEC_NGRAM_MOD_N_MIN=${SPEC_NGRAM_MOD_N_MIN:-}
+      - LLAMA_ARG_SPEC_NGRAM_MOD_N_MAX=${SPEC_NGRAM_MOD_N_MAX:-}
+      - LLAMA_ARG_SPEC_DRAFT_N_MAX=${SPEC_DRAFT_N_MAX:-}
+      - LLAMA_ARG_SPEC_DRAFT_P_MIN=${SPEC_DRAFT_P_MIN:-}
     security_opt:
       - no-new-privileges:true
     logging: *default-logging

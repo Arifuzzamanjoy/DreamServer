@@ -20,6 +20,10 @@ setup() {
 
 teardown() {
     unset MODEL_PROFILE
+    unset SPEC_TYPE
+    unset SPEC_NGRAM_MOD_N_MATCH
+    unset SPEC_NGRAM_MOD_N_MIN
+    unset SPEC_NGRAM_MOD_N_MAX
 }
 
 # ── resolve_tier_config ─────────────────────────────────────────────────────
@@ -192,6 +196,74 @@ teardown() {
     resolve_tier_config
     assert_equal "$MODEL_PROFILE_EFFECTIVE" "qwen"
     assert_equal "$LLM_MODEL" "qwen3.5-9b"
+}
+
+# ── Speculative decoding tier assignments ───────────────────────────────────
+
+@test "resolve_tier_config: tier 0 (qwen) gets ngram-simple spec-decode" {
+    TIER=0
+    resolve_tier_config
+    assert_equal "$SPEC_TYPE" "ngram-simple"
+}
+
+@test "resolve_tier_config: tier 1 (qwen) gets ngram-simple spec-decode" {
+    TIER=1
+    resolve_tier_config
+    assert_equal "$SPEC_TYPE" "ngram-simple"
+}
+
+@test "resolve_tier_config: tier 3 (qwen) gets ngram-mod spec-decode" {
+    TIER=3
+    resolve_tier_config
+    assert_equal "$SPEC_TYPE" "ngram-mod"
+    assert_equal "$SPEC_NGRAM_MOD_N_MATCH" "24"
+    assert_equal "$SPEC_NGRAM_MOD_N_MIN" "48"
+    assert_equal "$SPEC_NGRAM_MOD_N_MAX" "64"
+}
+
+@test "resolve_tier_config: tier 4 (qwen) gets ngram-mod spec-decode" {
+    TIER=4
+    resolve_tier_config
+    assert_equal "$SPEC_TYPE" "ngram-mod"
+}
+
+@test "resolve_tier_config: NV_ULTRA gets ngram-mod spec-decode" {
+    TIER=NV_ULTRA
+    resolve_tier_config
+    assert_equal "$SPEC_TYPE" "ngram-mod"
+}
+
+@test "resolve_tier_config: SH_COMPACT gets ngram-mod spec-decode" {
+    TIER=SH_COMPACT
+    resolve_tier_config
+    assert_equal "$SPEC_TYPE" "ngram-mod"
+}
+
+@test "resolve_tier_config: CLOUD tier gets empty spec-decode" {
+    TIER=CLOUD
+    resolve_tier_config
+    assert_equal "$SPEC_TYPE" ""
+}
+
+@test "resolve_tier_config: ARC gets ngram-simple spec-decode" {
+    TIER=ARC
+    resolve_tier_config
+    assert_equal "$SPEC_TYPE" "ngram-simple"
+}
+
+@test "resolve_tier_config: gemma4 tier 3 gets ngram-mod spec-decode" {
+    MODEL_PROFILE=gemma4
+    TIER=3
+    resolve_tier_config
+    assert_equal "$SPEC_TYPE" "ngram-mod"
+    assert_equal "$SPEC_NGRAM_MOD_N_MATCH" "24"
+}
+
+@test "resolve_tier_config: user SPEC_TYPE override is preserved" {
+    TIER=1
+    SPEC_TYPE="draft-mtp"
+    resolve_tier_config
+    assert_equal "$SPEC_TYPE" "draft-mtp"
 }
 
 @test "resolve_tier_config: auto profile keeps qwen on tier 0" {

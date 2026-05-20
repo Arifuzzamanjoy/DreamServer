@@ -299,6 +299,17 @@ $(if [[ -n "${LLAMA_SERVER_IMAGE:-}" ]]; then echo "LLAMA_SERVER_IMAGE=${LLAMA_S
 LLAMA_CPU_LIMIT=${LLAMA_CPU_LIMIT}
 LLAMA_CPU_RESERVATION=${LLAMA_CPU_RESERVATION}
 
+#=== Speculative Decoding (llama.cpp) ===
+# Strategy: ngram-simple (Tiers 0-2), ngram-mod (Tiers 3+), or draft-mtp (opt-in)
+# Forward-compatible: activates when llama-server image is bumped to b9014+.
+SPEC_TYPE=${SPEC_TYPE:-}
+SPEC_NGRAM_MOD_N_MATCH=${SPEC_NGRAM_MOD_N_MATCH:-}
+SPEC_NGRAM_MOD_N_MIN=${SPEC_NGRAM_MOD_N_MIN:-}
+SPEC_NGRAM_MOD_N_MAX=${SPEC_NGRAM_MOD_N_MAX:-}
+# MTP opt-in (Qwen3.6+ only): set SPEC_TYPE=draft-mtp and uncomment below
+# SPEC_DRAFT_N_MAX=3
+# SPEC_DRAFT_P_MIN=0.75
+
 $(if [[ "$GPU_BACKEND" == "amd" ]]; then cat << AMD_ENV
 #=== GPU Group IDs (for container device access) ===
 VIDEO_GID=$(getent group video 2>/dev/null | cut -d: -f3 || echo 44)
