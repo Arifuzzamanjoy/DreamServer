@@ -299,9 +299,8 @@ $(if [[ -n "${LLAMA_SERVER_IMAGE:-}" ]]; then echo "LLAMA_SERVER_IMAGE=${LLAMA_S
 LLAMA_CPU_LIMIT=${LLAMA_CPU_LIMIT}
 LLAMA_CPU_RESERVATION=${LLAMA_CPU_RESERVATION}
 
-#=== Speculative Decoding (llama.cpp) ===
+#=== Speculative Decoding (llama.cpp b9014+) ===
 # Strategy: ngram-simple (Tiers 0-2), ngram-mod (Tiers 3+), or draft-mtp (opt-in)
-# Forward-compatible: activates when llama-server image is bumped to b9014+.
 SPEC_TYPE=${SPEC_TYPE:-}
 SPEC_NGRAM_MOD_N_MATCH=${SPEC_NGRAM_MOD_N_MATCH:-}
 SPEC_NGRAM_MOD_N_MIN=${SPEC_NGRAM_MOD_N_MIN:-}

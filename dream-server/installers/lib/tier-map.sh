@@ -102,6 +102,14 @@ set_qwen_tier_config() {
             SPEC_NGRAM_MOD_N_MATCH="${SPEC_NGRAM_MOD_N_MATCH:-24}"
             SPEC_NGRAM_MOD_N_MIN="${SPEC_NGRAM_MOD_N_MIN:-48}"
             SPEC_NGRAM_MOD_N_MAX="${SPEC_NGRAM_MOD_N_MAX:-64}"
+            if [[ "${HOST_ARCH:-}" == "arm64" ]]; then
+                LLM_MODEL="qwen3.6-35b-a3b"
+                GGUF_FILE="Qwen3.6-35B-A3B-Q4_K_M.gguf"
+                SPEC_TYPE="${SPEC_TYPE:-ngram-mod}"
+                SPEC_NGRAM_MOD_N_MATCH="${SPEC_NGRAM_MOD_N_MATCH:-24}"
+                SPEC_NGRAM_MOD_N_MIN="${SPEC_NGRAM_MOD_N_MIN:-48}"
+                SPEC_NGRAM_MOD_N_MAX="${SPEC_NGRAM_MOD_N_MAX:-64}"
+            fi
             ;;
         SH_LARGE)
             TIER_NAME="Strix Halo 90+"

@@ -20,6 +20,7 @@ setup() {
 
 teardown() {
     unset MODEL_PROFILE
+    unset HOST_ARCH
     unset SPEC_TYPE
     unset SPEC_NGRAM_MOD_N_MATCH
     unset SPEC_NGRAM_MOD_N_MIN
@@ -321,4 +322,12 @@ teardown() {
 
     run tier_to_model NV_ULTRA qwen
     assert_output "qwen3-coder-next"
+}
+
+@test "resolve_tier_config: NV_ULTRA arm64 gets ngram-mod spec-decode" {
+    TIER=NV_ULTRA
+    HOST_ARCH=arm64
+    resolve_tier_config
+    assert_equal "$SPEC_TYPE" "ngram-mod"
+    assert_equal "$LLM_MODEL" "qwen3.6-35b-a3b"
 }
