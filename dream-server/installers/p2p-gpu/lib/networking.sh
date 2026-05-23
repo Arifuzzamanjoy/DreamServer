@@ -301,21 +301,34 @@ setup_cloudflare_tunnel() {
 
 # Get Vast.ai SSH connection info with proper env var handling
 _get_vastai_ssh_info() {
-  # Try to read from environment (set by Vast.ai)
-  local host_ip="${PUBLIC_IPADDR:-}"
-  local ssh_port="${VAST_TCP_PORT_22:-}"
+  local host_ip="" ssh_port=""
 
-  # If not in current environment, try to read from sourced parent env
-  # This handles cases where setup.sh was called with fresh subshell
+  # Priority 1: SSH_CONNECTION contains the actual IP the client connected to.
+  # Format: "client_ip client_port server_ip server_port"
+  # This is more reliable than PUBLIC_IPADDR on NAT'd Vast.ai instances.
+  if [[ -n "${SSH_CONNECTION:-}" ]]; then
+    host_ip="$(echo "$SSH_CONNECTION" | awk '{print $3}')"
+  fi
+
+  # Priority 2: Vast.ai environment variables
+  ssh_port="${VAST_TCP_PORT_22:-}"
+  if [[ -z "$host_ip" ]]; then
+    host_ip="${PUBLIC_IPADDR:-}"
+  fi
+
+  # Priority 3: /proc/self/environ (handles fresh subshell)
   if [[ -z "$host_ip" || -z "$ssh_port" ]]; then
-    # Source parent environment if available
     if [[ -r /proc/self/environ ]]; then
-      host_ip="${host_ip:-$(tr '\0' '\n' < /proc/self/environ | grep '^PUBLIC_IPADDR=' | cut -d= -f2)}"
-      ssh_port="${ssh_port:-$(tr '\0' '\n' < /proc/self/environ | grep '^VAST_TCP_PORT_22=' | cut -d= -f2)}"
+      if [[ -z "$host_ip" ]]; then
+        host_ip="$(tr '\0' '\n' < /proc/self/environ | grep '^PUBLIC_IPADDR=' | cut -d= -f2)"
+      fi
+      if [[ -z "$ssh_port" ]]; then
+        ssh_port="$(tr '\0' '\n' < /proc/self/environ | grep '^VAST_TCP_PORT_22=' | cut -d= -f2)"
+      fi
     fi
   fi
 
-  # Fallback to network detection only if neither is available
+  # Priority 4: Fallback to external IP detection
   if [[ -z "$host_ip" ]]; then
     host_ip="$(curl -sf --max-time 3 ifconfig.me 2>>"$LOGFILE" || echo '<your-vast-ip>')"
   fi
@@ -355,7 +368,9 @@ generate_ssh_tunnel_script() {
     echo '  FORWARDS="-L ${LOCAL_PROXY_PORT}:127.0.0.1:${ENTRY_PORT}'
     discover_service_ports "$ds_dir" | while IFS='|' read -r key port _label; do
       [[ "$key" == "REVERSE_PROXY_PORT" ]] && continue
-      echo "    -L ${port}:127.0.0.1:${port}"
+      local_port="$port"
+      [[ "$port" -lt 1024 ]] && local_port=$((10000 + port))
+      echo "    -L ${local_port}:127.0.0.1:${port}"
     done
     echo '  "'
     echo 'else'
@@ -403,7 +418,9 @@ while (\$true) {
 POWERSHELL_HEAD
     discover_service_ports "$ds_dir" | while IFS='|' read -r key port _label; do
       [[ "$key" == "REVERSE_PROXY_PORT" ]] && continue
-      printf '    "-L"; "%s:127.0.0.1:%s";\n' "$port" "$port"
+      lp="$port"
+      [[ "$port" -lt 1024 ]] && lp=$((10000 + port))
+      printf '    "-L"; "%s:127.0.0.1:%s";\n' "$lp" "$port"
     done
     cat << 'POWERSHELL_TAIL'
   )
@@ -511,6 +528,7 @@ _print_ssh_section() {
   echo ""
 
   local tunnel_flags=""
+  local remapped_notes=""
   local entry_port windows_local_proxy_port
   entry_port="$(env_get "$env_file" "DASHBOARD_PORT")"
   entry_port="${entry_port:-3001}"
@@ -518,7 +536,12 @@ _print_ssh_section() {
 
   while IFS='|' read -r key port _label; do
     [[ "$key" == "REVERSE_PROXY_PORT" ]] && continue
-    tunnel_flags="${tunnel_flags} -L ${port}:127.0.0.1:${port}"
+    local local_port="$port"
+    if [[ "$port" -lt 1024 ]]; then
+      local_port=$((10000 + port))
+      remapped_notes="${remapped_notes}\n  ${DIM}  Port ${port} remapped to local ${local_port} (ports <1024 need admin)${NC}"
+    fi
+    tunnel_flags="${tunnel_flags} -L ${local_port}:127.0.0.1:${port}"
   done < <(discover_service_ports "$ds_dir")
 
   echo -e "  ${BOLD}Windows PowerShell (all ports, recommended):${NC}"
@@ -547,6 +570,12 @@ _print_ssh_section() {
   echo -e "  ${DIM}If you see \"channel N: open failed: connect failed: Connection refused\",${NC}"
   echo -e "  ${DIM}the SSH tunnel is up, but that specific remote service is not listening yet.${NC}"
   echo ""
+
+  if [[ -n "$remapped_notes" ]]; then
+    echo -e "${BOLD}  Remapped privileged ports:${NC}"
+    echo -e "$remapped_notes"
+    echo ""
+  fi
 
 }
 

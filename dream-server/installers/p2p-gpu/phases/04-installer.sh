@@ -67,7 +67,8 @@ fi
 # causing the installer to re-run its own (sysfs-based) detection which
 # fails on Vast.ai / RunPod / any CDI-based GPU container.
 sudo -E -u "$DREAM_USER" \
-  env GPU_BACKEND="$GPU_BACKEND" \
+  env HOME="${DREAM_HOME}" \
+    GPU_BACKEND="$GPU_BACKEND" \
     GPU_VRAM="${GPU_VRAM:-0}" \
     GPU_COUNT="${GPU_COUNT:-1}" \
     GPU_NAME="${GPU_NAME:-unknown}" \
@@ -76,7 +77,7 @@ sudo -E -u "$DREAM_USER" \
 installer_pid=$!
 
 waited=0
-while kill -0 "$installer_pid" 2>&1; do
+while kill -0 "$installer_pid" 2>/dev/null; do  # stderr expected: process may exit between checks
   if [[ $waited -ge $INSTALLER_TIMEOUT ]]; then
     warn "Installer reached ${INSTALLER_TIMEOUT}s limit — proceeding with setup"
     kill -TERM "$installer_pid" 2>>"$LOGFILE" || warn "could not TERM installer (non-fatal)"
@@ -95,7 +96,7 @@ while kill -0 "$installer_pid" 2>&1; do
 done
 
 if [[ $install_exit -ne 124 ]]; then
-  wait "$installer_pid" 2>&1 || install_exit=$?
+  wait "$installer_pid" 2>>"$LOGFILE" || install_exit=$?
 fi
 
 if [[ $install_exit -eq 0 ]]; then

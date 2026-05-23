@@ -23,8 +23,20 @@ if ! command -v systemctl &>/dev/null && ! pidof systemd &>/dev/null; then
   log "No systemd detected — Vast.ai environment confirmed"
   dream_cli="${DS_DIR}/dream-cli"
   if [[ -x "$dream_cli" ]]; then
-    su - "$DREAM_USER" -c "cd ${DS_DIR} && ./dream-cli agent start" 2>&1 || \
-      warn "Host agent start failed (non-fatal — dashboard may have limited features)"
+    # Only start host agent if openclaw is enabled — hermes depends on it
+    openclaw_enabled=false
+    if [[ -f "${DS_DIR}/config/openclaw/inject-token.js" ]]; then
+      docker_names="$(docker ps -a --format '{{.Names}}' 2>/dev/null)" # stderr expected: docker may be unavailable during early setup
+      if echo "$docker_names" | grep -q 'dream-openclaw\|dream-hermes'; then
+        openclaw_enabled=true
+      fi
+    fi
+    if [[ "$openclaw_enabled" == "true" ]]; then
+      su - "$DREAM_USER" -c "cd ${DS_DIR} && ./dream-cli agent start" 2>&1 || \
+        warn "Host agent start failed (non-fatal — dashboard may have limited features)"
+    else
+      log "OpenClaw/Hermes not deployed — skipping host agent start"
+    fi
   fi
 fi
 
