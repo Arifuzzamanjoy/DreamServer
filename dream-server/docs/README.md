@@ -22,6 +22,8 @@ at [`../../README.md`](../../README.md).
 | Build a custom edition or fork | [BUILD-ON-DREAM-SERVER.md](BUILD-ON-DREAM-SERVER.md) | [EXTENSIONS.md](EXTENSIONS.md), [INSTALLER-ARCHITECTURE.md](INSTALLER-ARCHITECTURE.md), [../extensions/templates/README.md](../extensions/templates/README.md) |
 | Review a PR | [../CONTRIBUTING.md](../CONTRIBUTING.md) | [TESTING.md](TESTING.md), [PLATFORM-TRUTH-TABLE.md](PLATFORM-TRUTH-TABLE.md), [VALIDATION-MATRIX.md](VALIDATION-MATRIX.md) |
 
+**P2P GPU providers:** See [../installers/p2p-gpu/README.md](../installers/p2p-gpu/README.md) for the rented GPU host installer toolkit.
+
 ## Current Truths
 
 - The golden paths are Linux NVIDIA, Windows with Docker Desktop + WSL2 for

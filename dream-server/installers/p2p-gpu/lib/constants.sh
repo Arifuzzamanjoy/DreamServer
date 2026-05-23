@@ -2,7 +2,7 @@
 # ============================================================================
 # DreamServer — P2P GPU Deploy Constants
 # ============================================================================
-# Part of: dream-server/scripts/p2p-gpu/lib/
+# Part of: dream-server/installers/p2p-gpu/lib/
 # Purpose: Readonly variables, colors, paths, thresholds
 #
 # Expects: (nothing — first file sourced)

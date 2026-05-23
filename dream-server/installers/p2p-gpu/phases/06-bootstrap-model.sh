@@ -2,7 +2,7 @@
 # ============================================================================
 # DreamServer — P2P GPU Phase 06: Bootstrap Model
 # ============================================================================
-# Part of: dream-server/scripts/p2p-gpu/phases/
+# Part of: dream-server/installers/p2p-gpu/phases/
 # Purpose: Ensure a usable GGUF model file exists so llama-server can start.
 #          If the GPU can handle a bigger model, download it in the background
 #          and hot-swap once ready (zero downtime).

@@ -2,7 +2,7 @@
 # ============================================================================
 # DreamServer — P2P GPU Model Management
 # ============================================================================
-# Part of: dream-server/scripts/p2p-gpu/lib/
+# Part of: dream-server/installers/p2p-gpu/lib/
 # Purpose: Model URL resolution, aria2c-optimized downloads, model swap
 #          watcher for background upgrades, disk-space gating
 #

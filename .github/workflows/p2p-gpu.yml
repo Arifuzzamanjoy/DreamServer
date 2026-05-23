@@ -1,5 +1,5 @@
 name: P2P GPU Checks
-# Maintainer note: This CI is scoped to dream-server/scripts/p2p-gpu/** paths only and
+# Maintainer note: This CI is scoped to dream-server/installers/p2p-gpu/** paths only and
 # runs zero tests against core DreamServer. It exists because the toolkit is
 # ~4,500 lines of bash executed as root on rented GPU instances — syntax and
 # lint correctness matter more here than in typical resources/ add-ons.
@@ -9,13 +9,13 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "dream-server/scripts/p2p-gpu/**"
+      - "dream-server/installers/p2p-gpu/**"
       - ".github/workflows/p2p-gpu.yml"
       - ".gitignore"
   push:
     branches: [main, master]
     paths:
-      - "dream-server/scripts/p2p-gpu/**"
+      - "dream-server/installers/p2p-gpu/**"
       - ".github/workflows/p2p-gpu.yml"
       - ".gitignore"
 
@@ -33,14 +33,14 @@ jobs:
       - name: Syntax check (bash -n)
         run: |
           set -euo pipefail
-          find dream-server/scripts/p2p-gpu -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          find dream-server/installers/p2p-gpu -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
 
       - name: ShellCheck
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y shellcheck python3-yaml
-          shfiles=$(find dream-server/scripts/p2p-gpu -type f -name '*.sh')
+          shfiles=$(find dream-server/installers/p2p-gpu -type f -name '*.sh')
           if ! echo "$shfiles" | xargs shellcheck \
             --exclude=SC1090,SC1091,SC2034 \
             --severity=warning \
@@ -189,11 +189,11 @@ jobs:
 
           sudo chown -R dream:dream /home/dream/dream-server
 
-          sudo bash dream-server/scripts/p2p-gpu/setup.sh --dry-run
-          sudo bash dream-server/scripts/p2p-gpu/setup.sh --status
-          sudo bash dream-server/scripts/p2p-gpu/setup.sh --fix
+          sudo bash dream-server/installers/p2p-gpu/setup.sh --dry-run
+          sudo bash dream-server/installers/p2p-gpu/setup.sh --status
+          sudo bash dream-server/installers/p2p-gpu/setup.sh --fix
 
       - name: NVML mismatch repair regression
         run: |
           set -euo pipefail
-          bash dream-server/scripts/p2p-gpu/tests/test-nvml-mismatch.sh
+          bash dream-server/installers/p2p-gpu/tests/test-nvml-mismatch.sh

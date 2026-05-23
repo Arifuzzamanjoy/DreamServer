@@ -2,7 +2,7 @@
 # ============================================================================
 # DreamServer — P2P GPU Subcommand: teardown
 # ============================================================================
-# Part of: dream-server/scripts/p2p-gpu/subcommands/
+# Part of: dream-server/installers/p2p-gpu/subcommands/
 # Purpose: Stop all containers and background processes to stop all services
 #
 # Expects: log(), warn(), err(), find_dream_dir(), get_compose_cmd(),

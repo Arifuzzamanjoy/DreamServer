@@ -2,7 +2,7 @@
 # ============================================================================
 # DreamServer — P2P GPU Service Discovery & Management
 # ============================================================================
-# Part of: dream-server/scripts/p2p-gpu/lib/
+# Part of: dream-server/installers/p2p-gpu/lib/
 # Purpose: Manifest-driven service discovery, port enumeration, compose
 #          command detection, Docker image pre-pull, service startup
 #

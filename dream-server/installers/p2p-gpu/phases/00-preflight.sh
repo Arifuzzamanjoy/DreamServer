@@ -2,7 +2,7 @@
 # ============================================================================
 # DreamServer — P2P GPU Phase 00: Preflight Checks
 # ============================================================================
-# Part of: dream-server/scripts/p2p-gpu/phases/
+# Part of: dream-server/installers/p2p-gpu/phases/
 # Purpose: GPU detection (NVIDIA/AMD/CPU), disk/Docker/DNS validation,
 #          nvidia-container-toolkit setup
 #

@@ -2,7 +2,7 @@
 # ============================================================================
 # DreamServer — P2P GPU Topology & Multi-GPU Assignment
 # ============================================================================
-# Part of: dream-server/scripts/p2p-gpu/lib/
+# Part of: dream-server/installers/p2p-gpu/lib/
 # Purpose: Per-GPU enumeration, topology detection (NVLink/PCIe),
 #          GPU-to-service assignment delegation, env var writing
 #

@@ -2,7 +2,7 @@
 # ============================================================================
 # DreamServer — P2P GPU Environment Helpers
 # ============================================================================
-# Part of: dream-server/scripts/p2p-gpu/lib/
+# Part of: dream-server/installers/p2p-gpu/lib/
 # Purpose: .env management, port checks, directory discovery, CPU capping,
 #          ownership fixes, HTTP polling, GPU detection, post-install orchestrator
 #

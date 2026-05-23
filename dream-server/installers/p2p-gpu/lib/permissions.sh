@@ -2,7 +2,7 @@
 # ============================================================================
 # DreamServer — P2P GPU Permission System
 # ============================================================================
-# Part of: dream-server/scripts/p2p-gpu/lib/
+# Part of: dream-server/installers/p2p-gpu/lib/
 # Purpose: POSIX ACLs, setgid, UID-specific ownership, data dir scaffolding
 #
 # Expects: DREAM_USER, DREAM_HOME, LOGFILE, log(), warn(), err()
