@@ -5,7 +5,8 @@
 # Part of: p2p-gpu/phases/
 # Purpose: Execute DreamServer's install.sh with timeout protection
 #
-# Expects: REPO_DIR, DREAM_USER, INSTALLER_TIMEOUT, log(), warn(), err()
+# Expects: REPO_DIR, DREAM_USER, INSTALLER_TIMEOUT, GPU_BACKEND, GPU_VRAM,
+#          GPU_COUNT, log(), warn(), err()
 # Provides: DreamServer installed (may be partial if timeout hit)
 #
 # Fixes covered: #25 (ComfyUI infinite hang), #26 (installer timeout)
@@ -28,7 +29,50 @@ warn "Heavy services (ComfyUI, Whisper, etc.) will continue after timeout."
 install_exit=0
 installer_pid=""
 
-su - "$DREAM_USER" -c "cd ${REPO_DIR} && ./install.sh --non-interactive" &
+# Map detected VRAM to upstream installer tier system so non-interactive
+# installs on GPU hosts don't fall through to CPU-tier model selection.
+# Hard-fail philosophy: if GPU_BACKEND is nvidia but VRAM is unknown/zero,
+# we let the installer auto-detect rather than passing a wrong tier.
+installer_tier_arg=""
+if [[ "$GPU_BACKEND" == "nvidia" && "${GPU_VRAM:-0}" -gt 0 ]]; then
+  if   [[ "$GPU_VRAM" -ge 40000 ]]; then installer_tier_arg="--tier 4"
+  elif [[ "$GPU_VRAM" -ge 20000 ]]; then installer_tier_arg="--tier 3"
+  elif [[ "$GPU_VRAM" -ge 12000 ]]; then installer_tier_arg="--tier 2"
+  else                                   installer_tier_arg="--tier 1"
+  fi
+  log "Passing ${installer_tier_arg} to installer (GPU_VRAM=${GPU_VRAM} MiB)"
+fi
+
+# CDI containers can expose /dev/nvidia* without DRM vendor sysfs. Provide a
+# minimal sysfs override for the installer's detection phase when needed.
+drm_sys_override=""
+if [[ "$GPU_BACKEND" == "nvidia" && ( -e /dev/nvidiactl || -e /dev/nvidia0 ) ]]; then
+  has_drm_vendor=false
+  for vendor_path in /sys/class/drm/card*/device/vendor; do
+    if [[ -e "$vendor_path" ]]; then
+      has_drm_vendor=true
+      break
+    fi
+  done
+  if [[ "$has_drm_vendor" == "false" ]]; then
+    drm_sys_override="${TMPDIR:-/tmp}/dream-drm-sys"
+    mkdir -p "${drm_sys_override}/card0/device"
+    printf '0x10de\n' > "${drm_sys_override}/card0/device/vendor"
+    log "Providing DRM sysfs override at ${drm_sys_override} for containerized NVIDIA detection"
+  fi
+fi
+
+# sudo -E -u preserves GPU_BACKEND/GPU_VRAM/GPU_COUNT for the installer's
+# detection phase. The previous `su -` was a login shell and stripped them,
+# causing the installer to re-run its own (sysfs-based) detection which
+# fails on Vast.ai / RunPod / any CDI-based GPU container.
+sudo -E -u "$DREAM_USER" \
+  env GPU_BACKEND="$GPU_BACKEND" \
+    GPU_VRAM="${GPU_VRAM:-0}" \
+    GPU_COUNT="${GPU_COUNT:-1}" \
+    GPU_NAME="${GPU_NAME:-unknown}" \
+    DREAM_DRM_SYS="${drm_sys_override:-}" \
+    bash -c "cd ${REPO_DIR} && ./install.sh --non-interactive ${installer_tier_arg}" &
 installer_pid=$!
 
 waited=0
