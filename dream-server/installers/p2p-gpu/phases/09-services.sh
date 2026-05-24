@@ -20,6 +20,36 @@ set -euo pipefail
 
 step "Phase 9/12: Starting services"
 
+# Verify the configured model file exists - llama-server will crash without it
+_verify_model_file() {
+  local ds_dir="$1"
+  local env_file="${ds_dir}/.env"
+  local gguf_file models_dir
+
+  gguf_file="$(env_get "$env_file" "GGUF_FILE")"
+  gguf_file="${gguf_file:-Qwen3.5-9B-Q4_K_M.gguf}"
+  models_dir="${ds_dir}/data/models"
+
+  if [[ -f "${models_dir}/${gguf_file}" ]]; then
+    log "Model file verified: ${gguf_file} ($(du -h "${models_dir}/${gguf_file}" | cut -f1))"
+    return 0
+  fi
+
+  warn "Model file ${gguf_file} not found in ${models_dir}"
+
+  # Check if any .gguf file exists as fallback
+  local fallback
+  fallback="$(find "$models_dir" -maxdepth 1 -name '*.gguf' -printf '%f\n' 2>/dev/null | head -1)"  # stderr expected: find probe
+  if [[ -n "$fallback" ]]; then
+    log "Found fallback model: ${fallback} - updating GGUF_FILE in .env"
+    env_set "$env_file" "GGUF_FILE" "$fallback"
+    return 0
+  fi
+
+  warn "No .gguf model files found - llama-server will be unhealthy"
+  warn "Download a model: wget -P ${models_dir} https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
+}
+
 # Verify that the model endpoint exposes at least one selectable model for Open WebUI.
 _verify_model_visibility() {
   local env_file="${DS_DIR}/.env"
@@ -47,6 +77,8 @@ _verify_model_visibility() {
 }
 
 # Multi-GPU: run topology detection and GPU-to-service assignment before startup
+_verify_model_file "$DS_DIR"
+
 if [[ "${GPU_COUNT:-0}" -ge "${MULTIGPU_MIN_GPUS:-2}" ]]; then
   run_gpu_assignment "$DS_DIR" "${DS_DIR}/.env"
 fi

@@ -60,7 +60,8 @@ _ensure_persona_file() {
 
   # If Docker already created it as a directory, remove it
   if [[ -d "$persona_file" ]]; then
-    rmdir "$persona_file" 2>>"$LOGFILE" || warn "Could not remove directory at ${persona_file} (non-fatal)"
+    log "Removing Docker-created directory at ${persona_file}"
+    rm -rf "$persona_file" 2>>"$LOGFILE" || warn "Could not remove directory at ${persona_file} (non-fatal)"
   fi
 
   # Try rendering via upstream script first
@@ -91,6 +92,32 @@ SOUL_EOF
     chown "${DREAM_USER}:${DREAM_USER}" "$persona_file"
     log "Minimal persona placeholder created at ${persona_file}"
   fi
+
+  # Final verification - if still not a regular file, something is wrong
+  if [[ ! -f "$persona_file" ]]; then
+    warn "SOUL.md is still not a regular file at ${persona_file} - hermes container will fail to mount"
+    warn "Manual fix: rm -rf ${persona_file} && cp ${template} ${persona_file}"
+  fi
 }
 
 _ensure_persona_file "$DS_DIR"
+
+# Ensure llama-server config mount points are regular files, not Docker-created directories
+_ensure_mount_files() {
+  local ds_dir="$1"
+  local models_ini="${ds_dir}/config/llama-server/models.ini"
+
+  # models.ini - llama-server bind mount
+  if [[ -d "$models_ini" ]]; then
+    log "Removing Docker-created directory at ${models_ini}"
+    rm -rf "$models_ini"
+  fi
+  if [[ ! -f "$models_ini" ]]; then
+    mkdir -p "${ds_dir}/config/llama-server"
+    touch "$models_ini"
+    chown "${DREAM_USER}:${DREAM_USER}" "$models_ini"
+    log "Created empty ${models_ini}"
+  fi
+}
+
+_ensure_mount_files "$DS_DIR"
