@@ -40,7 +40,7 @@ done
 # unattended-upgrades can hold the dpkg lock for minutes on fresh Vast.ai
 # instances. We rely on DPk::Lock::Timeout below, but if the lock is clearly
 # stuck, kill only unattended-upgrades (the typical culprit).
-_wait_for_dpkg_lock 90
+_wait_for_dpkg_lock 90 || warn "dpkg lock not released in time — DPkg::Lock::Timeout will handle"
 
 # Disable unattended-upgrades permanently — it causes NVML mismatches
 # and dpkg lock contention on GPU instances
