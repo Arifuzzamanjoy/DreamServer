@@ -129,6 +129,9 @@ _verify_nvidia_passthrough() {
   if [[ "$probe_rc" -ne 0 ]]; then
     if ! dpkg -l nvidia-container-toolkit &>/dev/null; then
       warn "nvidia-container-toolkit not installed — attempting install"
+
+      _wait_for_dpkg_lock 60
+
       local keyring="/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg"
       curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
         | gpg --dearmor --batch --yes --output "$keyring" 2>>"$LOGFILE" \
@@ -136,7 +139,8 @@ _verify_nvidia_passthrough() {
       curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
         | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
         | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null
-      apt-get update -qq 2>>"$LOGFILE" && apt-get install -y -qq nvidia-container-toolkit 2>>"$LOGFILE"
+      apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" update -qq 2>>"$LOGFILE" \
+        && apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" install -y -qq nvidia-container-toolkit 2>>"$LOGFILE"
       nvidia-ctk runtime configure --runtime=docker 2>>"$LOGFILE" || warn "nvidia-ctk configure failed (non-fatal)"
       systemctl restart docker 2>>"$LOGFILE" || service docker restart 2>>"$LOGFILE" \
         || warn "docker restart failed (non-fatal)"
@@ -171,6 +175,17 @@ _verify_amd_passthrough() {
 
 [[ "$GPU_BACKEND" == "nvidia" ]] && _verify_nvidia_passthrough
 [[ "$GPU_BACKEND" == "amd" ]] && _verify_amd_passthrough
+
+# Re-detect GPU if initial detection returned cpu but nvidia-smi works now
+# (can happen after nvidia-container-toolkit install or stale state from previous run)
+if [[ "$GPU_BACKEND" == "cpu" ]] && command -v nvidia-smi &>/dev/null \
+  && nvidia-smi --query-gpu=name --format=csv,noheader &>/dev/null 2>&1; then
+  log "Re-running GPU detection after toolkit install..."
+  detect_gpu
+  if [[ "$GPU_BACKEND" != "cpu" ]]; then
+    log "GPU detected on retry: ${GPU_NAME} × ${GPU_COUNT} (${GPU_VRAM} MiB VRAM each)"
+  fi
+fi
 
 # ── DNS fix ─────────────────────────────────────────────────────────────────
 if ! host github.com &>/dev/null && ! nslookup github.com &>/dev/null; then

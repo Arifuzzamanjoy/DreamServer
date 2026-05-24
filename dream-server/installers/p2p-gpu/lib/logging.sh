@@ -74,3 +74,45 @@ acquire_lock() {
     exit 1
   fi
 }
+
+# ── dpkg lock helper (used by phases 00 and 01) ─────────────────────────────
+# Waits for the dpkg frontend lock to be released, killing unattended-upgrades
+# if it's the holder. Returns 0 when lock is free, 1 on timeout.
+_wait_for_dpkg_lock() {
+  local max_wait="${1:-90}"
+
+  if ! fuser /var/lib/dpkg/lock-frontend &>/dev/null; then  # stderr expected: fuser probe
+    return 0  # Lock is free
+  fi
+
+  log "dpkg lock held — attempting to release (timeout ${max_wait}s)"
+
+  # Stop unattended-upgrades if it's the culprit
+  if ps aux | grep -q "[u]nattended-upgrade"; then
+    log "Stopping unattended-upgrades service..."
+    systemctl stop unattended-upgrades 2>>"$LOGFILE" || warn "systemctl stop failed (non-fatal)"
+    # Also kill any lingering child processes
+    pkill -f unattended-upgrade 2>/dev/null || warn "no unattended-upgrade process found (non-fatal)"  # stderr expected: no matching process
+  fi
+
+  # Poll until lock is released
+  local elapsed=0
+  while fuser /var/lib/dpkg/lock-frontend &>/dev/null; do  # stderr expected: fuser probe
+    if [[ $elapsed -ge $max_wait ]]; then
+      warn "dpkg lock still held after ${max_wait}s — proceeding with DPkg::Lock::Timeout"
+      return 1
+    fi
+    sleep 3
+    elapsed=$((elapsed + 3))
+    (( elapsed % 15 == 0 )) && log "Still waiting for dpkg lock... (${elapsed}s / ${max_wait}s)"
+  done
+
+  log "dpkg lock released after ${elapsed}s"
+
+  # Clean up any interrupted package state
+  if ! dpkg --configure -a 2>>"$LOGFILE"; then
+    warn "dpkg --configure -a failed (non-fatal) — DPkg::Lock::Timeout will handle"
+  fi
+
+  return 0
+}

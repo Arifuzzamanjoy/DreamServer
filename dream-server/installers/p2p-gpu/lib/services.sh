@@ -26,19 +26,64 @@ set -euo pipefail
 _ensure_host_agent_running() {
   local ds_dir="$1"
   local dream_cli="${ds_dir}/dream-cli"
+  local agent_port agent_bind
 
   if [[ ! -x "$dream_cli" ]]; then
     warn "dream-cli not found at ${dream_cli} — skipping host agent auto-start"
     return 0
   fi
 
-  if su - "$DREAM_USER" -c "cd ${ds_dir} && DREAM_HOME=${ds_dir} ./dream-cli agent start" \
-    >> "$LOGFILE" 2>&1; then
-    log "Ensured Dream host agent is started"
-  else
-    warn "Dream host agent auto-start failed — model download from Dashboard may fail"
-    warn "Run manually: su - ${DREAM_USER} -c 'cd ${ds_dir} && DREAM_HOME=${ds_dir} ./dream-cli agent start'"
+  agent_port="$(grep '^DREAM_AGENT_PORT=' "${ds_dir}/.env" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]' || echo "7710")"  # stderr expected: .env may not exist
+  agent_port="${agent_port:-7710}"
+  agent_bind="$(grep '^DREAM_AGENT_BIND=' "${ds_dir}/.env" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]' || echo "127.0.0.1")"  # stderr expected: .env may not exist
+  agent_bind="${agent_bind:-127.0.0.1}"
+
+  if curl -sf --max-time 2 "http://${agent_bind}:${agent_port}/health" >/dev/null 2>&1; then
+    log "Host agent already running on port ${agent_port}"
+    return 0
   fi
+
+  if ! command -v python3 &>/dev/null; then
+    warn "python3 not found — host agent cannot start"
+    warn "Install: apt-get install -y python3"
+    return 1
+  fi
+
+  local agent_script="${ds_dir}/bin/dream-host-agent.py"
+  if [[ ! -f "$agent_script" ]]; then
+    warn "Agent script not found at ${agent_script} — skipping"
+    return 1
+  fi
+
+  local attempt pid_file="${ds_dir}/data/dream-host-agent.pid" wait_elapsed
+  for attempt in 1 2; do
+    log "Starting host agent (attempt ${attempt}/2)..."
+    su - "$DREAM_USER" -c "cd ${ds_dir} && DREAM_HOME=${ds_dir} ./dream-cli agent start" \
+      >> "$LOGFILE" 2>&1 || warn "dream-cli agent start returned non-zero (attempt ${attempt})"
+
+    wait_elapsed=0
+    while [[ $wait_elapsed -lt 8 ]]; do
+      sleep 2
+      wait_elapsed=$((wait_elapsed + 2))
+      if curl -sf --max-time 2 "http://${agent_bind}:${agent_port}/health" >/dev/null 2>&1; then
+        log "Host agent verified running on port ${agent_port} (attempt ${attempt})"
+        return 0
+      fi
+    done
+
+    if [[ $attempt -eq 1 ]]; then
+      warn "Host agent not responding after start — retrying..."
+      if [[ -f "$pid_file" ]]; then
+        kill "$(cat "$pid_file")" 2>>"$LOGFILE" || warn "stale host agent pid in ${pid_file} could not be killed"
+        rm -f "$pid_file"
+      fi
+    fi
+  done
+
+  warn "Host agent failed to start after 2 attempts"
+  warn "Manual start: su - ${DREAM_USER} -c 'cd ${ds_dir} && DREAM_HOME=${ds_dir} ./dream-cli agent start'"
+  warn "Check logs: cat ${ds_dir}/data/dream-host-agent.log"
+  return 1
 }
 
 # Ensure OpenCode web is reachable on no-systemd hosts (Vast.ai fallback).

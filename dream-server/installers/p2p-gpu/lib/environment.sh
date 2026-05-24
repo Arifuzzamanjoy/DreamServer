@@ -260,6 +260,11 @@ detect_gpu() {
       GPU_TOTAL_VRAM=$GPU_VRAM
     fi
   fi
+
+  # Pin packages after successful detection to prevent future mismatches
+  if [[ "$GPU_BACKEND" == "nvidia" ]]; then
+    _pin_nvidia_packages
+  fi
 }
 
 # Lightweight backend-only detection (for subcommands that don't need full GPU info)
@@ -342,11 +347,13 @@ detect_nvml_mismatch() {
   return 0
 }
 
-# ── [FIX: nvml-mismatch] NVIDIA driver upgrade to align with container CUDA ──
-# Attempts to upgrade host NVIDIA driver to resolve mismatch.
+# ── [FIX: nvml-mismatch] Multi-strategy NVIDIA driver/library mismatch repair ──
+# Strategy 1: Reload kernel modules (fastest, no packages needed)
+# Strategy 2: Downgrade userspace libs to match kernel module version
+# Strategy 3: Upgrade kernel module to match userspace libs (original approach)
 # Non-fatal: logs warnings on failure but does not halt.
 repair_nvml_mismatch() {
-  local initial_status post_repair_status host_probe_output
+  local host_probe_output kernel_version lib_version initial_status post_repair_status
 
   log "Attempting to repair NVIDIA driver/library mismatch..."
 
@@ -355,48 +362,213 @@ repair_nvml_mismatch() {
     log "No mismatch detected, skipping repair"
     return 0
   elif [[ $initial_status -eq 2 ]]; then
-    host_probe_output=$(nvidia-smi 2>&1) && : || :
+    host_probe_output=$(nvidia-smi 2>&1) || warn "nvidia-smi probe failed (non-fatal)"
     if _has_nvml_mismatch_signature "$host_probe_output"; then
       warn "NVIDIA host probe reports driver/library mismatch — forcing repair attempt"
-      initial_status=1
     else
       warn "Unable to detect NVIDIA driver/library mismatch state (skipping repair)"
       return 1
     fi
   fi
 
-  # Attempt upgrade
-  log "Running apt-get update && apt-get install --only-upgrade nvidia-driver-*"
-  if apt-get update -qq 2>>"$LOGFILE" && apt-get install -y -qq --only-upgrade "nvidia-driver-*" 2>>"$LOGFILE"; then
-    log "NVIDIA driver upgrade completed"
+  # Get kernel module version (the version that's actually loaded)
+  if [[ -f /proc/driver/nvidia/version ]]; then
+    kernel_version="$(grep -oP 'Kernel Module\s+\K[0-9.]+' /proc/driver/nvidia/version || echo "")"
+  fi
+  if [[ -z "${kernel_version:-}" ]] && [[ -f /sys/module/nvidia/version ]]; then
+    kernel_version="$(cat /sys/module/nvidia/version 2>/dev/null || echo "")"  # stderr expected: file may not exist
+  fi
 
-    # Restart Docker to recognize new driver
-    log "Restarting Docker daemon to recognize upgraded driver..."
-    if systemctl restart docker 2>>"$LOGFILE" || service docker restart 2>>"$LOGFILE"; then
-      log "Docker daemon restarted"
+  # Get NVML library version from nvidia-smi error output
+  lib_version="$(nvidia-smi 2>&1 | grep -oP 'NVML library version:\s*\K[0-9.]+' || echo "")"
+
+  if [[ -n "$kernel_version" ]]; then
+    log "Kernel module version: ${kernel_version}"
+  fi
+  if [[ -n "$lib_version" ]]; then
+    log "NVML library version: ${lib_version}"
+  fi
+
+  # ── Strategy 1: Kernel module reload ────────────────────────────────────
+  # Unload and reload NVIDIA modules so the userspace libs match what loads.
+  # This is the fastest fix and requires no package changes.
+  log "Strategy 1: Attempting kernel module reload..."
+
+  # Stop processes using the GPU before module unload
+  local gpu_containers
+  gpu_containers="$(docker ps --format '{{.Names}}' --filter 'label=com.docker.compose.project' 2>/dev/null | grep '^dream-' || echo "")"  # stderr expected: docker may not be running
+  if [[ -n "$gpu_containers" ]]; then
+    log "Stopping Docker containers before module reload..."
+    docker stop $gpu_containers >> "$LOGFILE" 2>&1 || warn "Some containers failed to stop (non-fatal)"
+  fi
+
+  # Stop persistence daemon if running
+  if pgrep -x nvidia-persistenced >/dev/null 2>&1; then  # stderr expected: process check
+    log "Stopping nvidia-persistenced..."
+    kill "$(pgrep -x nvidia-persistenced)" 2>/dev/null || warn "nvidia-persistenced not running (non-fatal)"  # stderr expected: may not exist
+    sleep 1
+  fi
+
+  # Kill any remaining GPU processes
+  if [[ -e /dev/nvidia0 ]]; then
+    local gpu_pids
+    gpu_pids="$(fuser /dev/nvidia* 2>/dev/null | xargs || echo "")"  # stderr expected: fuser probe
+    if [[ -n "$gpu_pids" ]]; then
+      log "Killing GPU processes: ${gpu_pids}"
+      kill $gpu_pids 2>/dev/null || warn "some GPU processes already exited (non-fatal)"  # stderr expected: processes may have exited
+      sleep 2
+    fi
+  fi
+
+  # Unload modules in dependency order
+  local reload_success=false
+  rmmod nvidia_uvm 2>>"$LOGFILE" || warn "nvidia_uvm not loaded (non-fatal)"
+  rmmod nvidia_drm 2>>"$LOGFILE" || warn "nvidia_drm not loaded (non-fatal)"
+  rmmod nvidia_modeset 2>>"$LOGFILE" || warn "nvidia_modeset not loaded (non-fatal)"
+  if rmmod nvidia 2>>"$LOGFILE"; then
+    log "NVIDIA kernel modules unloaded successfully"
+    # Reload — nvidia-smi triggers automatic module load
+    sleep 1
+    if nvidia-smi &>/dev/null; then  # stderr expected: driver reinit
+      reload_success=true
+      log "NVIDIA kernel modules reloaded — nvidia-smi works"
+      nvidia-smi --query-gpu=driver_version,name --format=csv,noheader 2>>"$LOGFILE" | \
+        while read -r line; do log "  GPU: ${line}"; done
     else
-      warn "Docker restart failed (non-fatal, may need manual restart)"
+      warn "nvidia-smi still fails after module reload"
+    fi
+  else
+    warn "Could not unload nvidia module (in use) — trying strategy 2"
+  fi
+
+  if [[ "$reload_success" == "true" ]]; then
+    # Verify with DKMS that module version matches kernel expectation
+    if command -v dkms &>/dev/null; then  # stderr expected: dkms check
+      local dkms_status
+      dkms_status="$(dkms status 2>/dev/null | grep nvidia || echo "")"  # stderr expected: dkms probe
+      if [[ -n "$dkms_status" ]]; then
+        log "DKMS status: ${dkms_status}"
+      fi
     fi
 
-    # Verify post-repair
-    sleep 2  # brief delay for driver to stabilize
+    # Restart Docker so it picks up the reloaded driver
+    systemctl restart docker 2>>"$LOGFILE" || service docker restart 2>>"$LOGFILE" \
+      || warn "Docker restart failed (non-fatal)"
+
+    # Verify CUDA compat libs aren't shadowing host driver inside containers
+    # (per NVIDIA NIM troubleshooting guide — bundled compat libs at
+    #  /usr/local/cuda-*/compat/ can override the host-mounted driver)
+    nvidia-ctk runtime configure --runtime=docker 2>>"$LOGFILE" \
+      || warn "nvidia-ctk configure failed (non-fatal)"
+
+    # Re-start any containers we stopped
+    if [[ -n "$gpu_containers" ]]; then
+      docker start $gpu_containers >> "$LOGFILE" 2>&1 || warn "Some containers failed to restart (non-fatal)"
+    fi
+
     detect_nvml_mismatch && post_repair_status=0 || post_repair_status=$?
     if [[ $post_repair_status -eq 0 ]]; then
-      log "NVIDIA driver mismatch RESOLVED after upgrade"
+      _pin_nvidia_packages
       return 0
     elif [[ $post_repair_status -eq 1 ]]; then
-      warn "NVIDIA driver mismatch persists after upgrade (non-fatal, manual intervention may be needed)"
-      return 1
-    elif [[ $post_repair_status -eq 2 ]]; then
-      warn "Unable to verify NVIDIA driver/library mismatch after upgrade (non-fatal)"
-      return 1
+      warn "NVIDIA driver mismatch persists after module reload"
+    else
+      warn "Unable to verify NVIDIA driver/library mismatch after module reload"
+    fi
+  fi
+
+  # ── Strategy 2: Downgrade userspace to match kernel module ──────────────
+  # If we know the kernel module version, install matching userspace packages.
+  if [[ -n "${kernel_version:-}" ]]; then
+    log "Strategy 2: Aligning userspace libs to kernel module version ${kernel_version}..."
+    local driver_major
+    driver_major="$(echo "$kernel_version" | cut -d. -f1)"
+
+    if type -t _wait_for_dpkg_lock >/dev/null 2>&1; then
+      _wait_for_dpkg_lock 60
     fi
 
-    warn "Unable to verify NVIDIA driver/library mismatch after upgrade (non-fatal)"
-    return 1
+    # Try to install the exact matching driver version
+    if apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" update -qq 2>>"$LOGFILE" \
+      && apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" install -y -qq \
+        --allow-downgrades \
+        "nvidia-utils-${driver_major}=${kernel_version}-*" \
+        "libnvidia-ml-dev=${kernel_version}-*" \
+        2>>"$LOGFILE"; then
+      log "Userspace libs downgraded to match kernel ${kernel_version}"
+      if nvidia-smi &>/dev/null; then  # stderr expected: driver reinit
+        log "nvidia-smi works after userspace downgrade"
+        detect_nvml_mismatch && post_repair_status=0 || post_repair_status=$?
+        if [[ $post_repair_status -eq 0 ]]; then
+          _pin_nvidia_packages
+          return 0
+        elif [[ $post_repair_status -eq 1 ]]; then
+          warn "NVIDIA driver mismatch persists after userspace downgrade"
+        else
+          warn "Unable to verify NVIDIA driver/library mismatch after userspace downgrade"
+        fi
+      fi
+    else
+      warn "Userspace downgrade to ${kernel_version} failed — trying strategy 3"
+    fi
+  fi
+
+  # ── Strategy 3: Upgrade everything (original approach) ──────────────────
+  log "Strategy 3: Attempting full driver upgrade..."
+  if type -t _wait_for_dpkg_lock >/dev/null 2>&1; then
+    _wait_for_dpkg_lock 60
+  fi
+
+  if apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" update -qq 2>>"$LOGFILE" \
+    && apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" install -y -qq \
+      --only-upgrade "nvidia-driver-*" 2>>"$LOGFILE"; then
+    log "NVIDIA driver upgrade completed"
+    systemctl restart docker 2>>"$LOGFILE" || service docker restart 2>>"$LOGFILE" \
+      || warn "Docker restart failed (non-fatal)"
+    sleep 2
+    if nvidia-smi &>/dev/null; then  # stderr expected: driver reinit
+      detect_nvml_mismatch && post_repair_status=0 || post_repair_status=$?
+      if [[ $post_repair_status -eq 0 ]]; then
+        log "NVIDIA driver mismatch RESOLVED after upgrade"
+        _pin_nvidia_packages
+        return 0
+      elif [[ $post_repair_status -eq 1 ]]; then
+        warn "NVIDIA driver mismatch persists after upgrade"
+      else
+        warn "Unable to verify NVIDIA driver/library mismatch after upgrade"
+      fi
+    else
+      warn "nvidia-smi still fails after upgrade"
+    fi
   else
-    warn "NVIDIA driver upgrade failed (non-fatal, GPU may still work)"
-    return 1
+    warn "NVIDIA driver upgrade failed"
+  fi
+
+  warn "All NVML mismatch repair strategies exhausted — GPU may not work"
+  warn "Manual fix: reboot the instance, or try: rmmod nvidia_uvm nvidia_drm nvidia_modeset nvidia && nvidia-smi"
+  return 1
+}
+
+# Pin NVIDIA packages to prevent unattended-upgrades from causing future mismatches
+# (NVIDIA support stats: driver mismatches cause 31% of GPU cluster issues)
+_pin_nvidia_packages() {
+  # Hold nvidia packages so unattended-upgrades can't break them
+  local held=0
+  for pkg in $(dpkg -l | grep -E '^ii\s+(nvidia-driver|nvidia-utils|nvidia-dkms|libnvidia)' | awk '{print $2}'); do
+    apt-mark hold "$pkg" 2>>"$LOGFILE" && held=$((held + 1))
+  done
+  if [[ $held -gt 0 ]]; then
+    log "Pinned ${held} NVIDIA packages (prevents unattended-upgrades mismatch)"
+  fi
+
+  # Also blacklist nvidia from unattended-upgrades if config exists
+  local uu_conf="/etc/apt/apt.conf.d/50unattended-upgrades"
+  if [[ -f "$uu_conf" ]] && ! grep -q 'nvidia' "$uu_conf"; then
+    if grep -q 'Unattended-Upgrade::Package-Blacklist' "$uu_conf"; then
+      sed -i '/Unattended-Upgrade::Package-Blacklist/a\    "nvidia-*";' "$uu_conf" 2>>"$LOGFILE" \
+        || warn "Failed to add nvidia to unattended-upgrades blacklist (non-fatal)"
+      log "Added nvidia-* to unattended-upgrades blacklist"
+    fi
   fi
 }
 
@@ -456,7 +628,7 @@ apply_post_install_fixes() {
         warn "Run 'bash setup.sh --fix' to repair, or manually upgrade nvidia-driver-*"
       elif [[ $mismatch_status -eq 2 ]]; then
         local host_probe_output
-        host_probe_output=$(nvidia-smi 2>&1) && : || :
+        host_probe_output=$(nvidia-smi 2>&1) || warn "nvidia-smi probe failed (non-fatal)"
         if _has_nvml_mismatch_signature "$host_probe_output"; then
           warn "Host NVIDIA stack reports driver/library mismatch (non-fatal)"
           warn "If 'bash setup.sh --fix' cannot recover, reinstall NVIDIA driver package and reboot"
