@@ -62,9 +62,9 @@ _ensure_host_agent_running() {
       >> "$LOGFILE" 2>&1 || warn "dream-cli agent start returned non-zero (attempt ${attempt})"
 
     wait_elapsed=0
-    while [[ $wait_elapsed -lt 8 ]]; do
-      sleep 2
-      wait_elapsed=$((wait_elapsed + 2))
+    while [[ $wait_elapsed -lt 20 ]]; do
+      sleep 3
+      wait_elapsed=$((wait_elapsed + 3))
       if curl -sf --max-time 2 "http://${agent_bind}:${agent_port}/health" >/dev/null 2>&1; then
         log "Host agent verified running on port ${agent_port} (attempt ${attempt})"
         return 0
@@ -549,6 +549,6 @@ start_services() {
   fi
 
   _heal_dashboard_api_proxy "$env_file"
-  _ensure_host_agent_running "$ds_dir"
-  _ensure_opencode_web_running "$ds_dir"
+  _ensure_host_agent_running "$ds_dir" || warn "Host agent unavailable - model downloads may fail until agent is started manually"
+  _ensure_opencode_web_running "$ds_dir" || warn "OpenCode web unavailable (non-fatal)"
 }
