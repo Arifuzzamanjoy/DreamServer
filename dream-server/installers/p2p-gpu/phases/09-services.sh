@@ -20,6 +20,32 @@ set -euo pipefail
 
 step "Phase 9/12: Starting services"
 
+# Verify that the model endpoint exposes at least one selectable model for Open WebUI.
+_verify_model_visibility() {
+  local env_file="${DS_DIR}/.env"
+  local ollama_port webui_port
+
+  ollama_port="$(env_get "$env_file" "OLLAMA_PORT")"
+  ollama_port="${ollama_port:-11434}"
+  webui_port="$(env_get "$env_file" "OPEN_WEBUI_PORT")"
+  webui_port="${webui_port:-3000}"
+
+  local model_count=0
+  local models_json
+  models_json="$(curl -sf --max-time 5 "http://127.0.0.1:${ollama_port}/v1/models" 2>/dev/null || echo "")"  # stderr expected: service may not be ready
+  if [[ -n "$models_json" ]]; then
+    model_count="$(echo "$models_json" | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("data", [])))' 2>/dev/null || echo 0)"  # stderr expected: json parse may fail if the endpoint is not ready
+  fi
+
+  if [[ "$model_count" -gt 0 ]]; then
+    log "LLM model visible on API (${model_count} model(s) on port ${ollama_port})"
+  else
+    warn "No models visible on llama-server API (port ${ollama_port}) — Open WebUI may show 'Model not selected'"
+    warn "Check: curl http://127.0.0.1:${ollama_port}/v1/models"
+    warn "Open WebUI port ${webui_port} should refresh after the model API becomes available"
+  fi
+}
+
 # Multi-GPU: run topology detection and GPU-to-service assignment before startup
 if [[ "${GPU_COUNT:-0}" -ge "${MULTIGPU_MIN_GPUS:-2}" ]]; then
   run_gpu_assignment "$DS_DIR" "${DS_DIR}/.env"
@@ -124,6 +150,7 @@ _handle_missing_model() {
 }
 
 _run_health_check
+_verify_model_visibility
 
 # ── Service status report ──────────────────────────────────────────────────
 _report_service_status() {

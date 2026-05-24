@@ -17,5 +17,5 @@ step "Phase 12/12: Setup complete"
 
 print_access_info "$DS_DIR"
 
-echo "=== Setup completed at $(_ts) ===" >> "$LOGFILE" || :
+echo "=== Setup completed at $(_ts) ===" >> "$LOGFILE" || warn "logfile write failed (non-fatal)"
 log "Setup complete! Core services ready. Heavy services downloading in background."

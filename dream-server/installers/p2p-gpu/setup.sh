@@ -134,7 +134,7 @@ main() {
   setup_cleanup_trap
   acquire_lock
   mkdir -p "$(dirname "$LOGFILE")"
-  echo "=== Setup started at $(_ts) ===" >> "$LOGFILE" || :
+  echo "=== Setup started at $(_ts) ===" >> "$LOGFILE" || warn "logfile write failed (non-fatal)"
 
   _check_existing_install
 

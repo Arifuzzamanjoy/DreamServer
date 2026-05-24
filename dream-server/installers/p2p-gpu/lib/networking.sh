@@ -299,38 +299,54 @@ setup_cloudflare_tunnel() {
   log "Cloudflare Tunnel started (PID: ${cf_pid}) — HTTPS access active"
 }
 
+# Returns 0 when the supplied IP is RFC1918/private or otherwise unusable as a public endpoint.
+_is_private_ip() {
+  local ip="$1"
+
+  [[ -z "$ip" ]] && return 0
+
+  case "$ip" in
+    10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|192.168.*|169.254.*|127.*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Get Vast.ai SSH connection info with proper env var handling
 _get_vastai_ssh_info() {
   local host_ip="" ssh_port=""
 
-  # Priority 1: SSH_CONNECTION contains the actual IP the client connected to.
-  # Format: "client_ip client_port server_ip server_port"
-  # This is more reliable than PUBLIC_IPADDR on NAT'd Vast.ai instances.
-  if [[ -n "${SSH_CONNECTION:-}" ]]; then
-    host_ip="$(echo "$SSH_CONNECTION" | awk '{print $3}')"
-  fi
-
-  # Priority 2: Vast.ai environment variables
+  # Priority 1: Vast.ai publishes the authoritative public IP here.
+  host_ip="${PUBLIC_IPADDR:-}"
   ssh_port="${VAST_TCP_PORT_22:-}"
-  if [[ -z "$host_ip" ]]; then
-    host_ip="${PUBLIC_IPADDR:-}"
-  fi
 
-  # Priority 3: /proc/self/environ (handles fresh subshell)
+  # Priority 2: /proc/self/environ (handles SSH sessions that strip env vars)
   if [[ -z "$host_ip" || -z "$ssh_port" ]]; then
     if [[ -r /proc/self/environ ]]; then
       if [[ -z "$host_ip" ]]; then
-        host_ip="$(tr '\0' '\n' < /proc/self/environ | grep '^PUBLIC_IPADDR=' | cut -d= -f2)"
+        host_ip="$(tr '\0' '\n' < /proc/self/environ | grep '^PUBLIC_IPADDR=' | cut -d= -f2 || echo "")"
       fi
       if [[ -z "$ssh_port" ]]; then
-        ssh_port="$(tr '\0' '\n' < /proc/self/environ | grep '^VAST_TCP_PORT_22=' | cut -d= -f2)"
+        ssh_port="$(tr '\0' '\n' < /proc/self/environ | grep '^VAST_TCP_PORT_22=' | cut -d= -f2 || echo "")"
       fi
     fi
   fi
 
-  # Priority 4: Fallback to external IP detection
+  # Priority 3: /etc/environment (Vast.ai onstart may export vars here)
+  if [[ -z "$host_ip" && -f /etc/environment ]]; then
+    host_ip="$(grep '^PUBLIC_IPADDR=' /etc/environment 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")"  # stderr expected: file may be absent or unreadable
+  fi
+  if [[ -z "$ssh_port" && -f /etc/environment ]]; then
+    ssh_port="$(grep '^VAST_TCP_PORT_22=' /etc/environment 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")"  # stderr expected: file may be absent or unreadable
+  fi
+
+  # Discard any detected private/NAT address.
+  if _is_private_ip "$host_ip"; then
+    host_ip=""
+  fi
+
+  # Priority 4: External IP detection (reliable fallback)
   if [[ -z "$host_ip" ]]; then
-    host_ip="$(curl -sf --max-time 3 ifconfig.me 2>>"$LOGFILE" || echo '<your-vast-ip>')"
+    host_ip="$(curl -sf --max-time 5 ifconfig.me 2>>"$LOGFILE" || curl -sf --max-time 5 icanhazip.com 2>>"$LOGFILE" || echo '<your-vast-ip>')"
   fi
   if [[ -z "$ssh_port" ]]; then
     ssh_port="22"
