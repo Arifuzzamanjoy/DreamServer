@@ -485,7 +485,7 @@ repair_nvml_mismatch() {
     driver_major="$(echo "$kernel_version" | cut -d. -f1)"
 
     if type -t _wait_for_dpkg_lock >/dev/null 2>&1; then
-      _wait_for_dpkg_lock 60
+      _wait_for_dpkg_lock 60 || warn "dpkg lock not released in time — DPkg::Lock::Timeout will handle"
     fi
 
     # Try to install the exact matching driver version
@@ -516,7 +516,7 @@ repair_nvml_mismatch() {
   # ── Strategy 3: Upgrade everything (original approach) ──────────────────
   log "Strategy 3: Attempting full driver upgrade..."
   if type -t _wait_for_dpkg_lock >/dev/null 2>&1; then
-    _wait_for_dpkg_lock 60
+    _wait_for_dpkg_lock 60 || warn "dpkg lock not released in time — DPkg::Lock::Timeout will handle"
   fi
 
   if apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" update -qq 2>>"$LOGFILE" \

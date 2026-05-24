@@ -130,7 +130,7 @@ _verify_nvidia_passthrough() {
     if ! dpkg -l nvidia-container-toolkit &>/dev/null; then
       warn "nvidia-container-toolkit not installed — attempting install"
 
-      _wait_for_dpkg_lock 60
+      _wait_for_dpkg_lock 60 || warn "dpkg lock not released in time — DPkg::Lock::Timeout will handle"
 
       local keyring="/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg"
       curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
