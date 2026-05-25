@@ -11,7 +11,7 @@
 #           ensure_dream_cli_command(),
 #           cap_cpu_in_yaml(), cap_cpu_in_files(), get_compose_cpu_ceiling(),
 #           compute_safe_cpu_cap(), fix_ownership(), wait_for_http(),
-#           detect_gpu(), apply_post_install_fixes()
+#           detect_gpu(), _cap_context_for_vram(), apply_post_install_fixes()
 #
 # Modder notes:
 #   env_set is idempotent — safe to call multiple times with same key.
@@ -741,5 +741,84 @@ _apply_env_defaults() {
       env_set "$env_file" "GGUF_FILE" "$first_model"
       log "Set GGUF_FILE=${first_model}"
     fi
+  fi
+}
+
+# ── VRAM-aware context size capping ───────────────────────────────────────
+# The upstream installer sets CTX_SIZE=131072 when Hermes is enabled, but
+# this exceeds VRAM on cards <=24 GB with large models. Cap CTX_SIZE based
+# on available VRAM headroom after model weight, and enable KV cache
+# quantization to maximize usable context within the budget.
+_cap_context_for_vram() {
+  local ds_dir="$1"
+  local env_file="${ds_dir}/.env"
+
+  # Skip if no GPU
+  if [[ "${GPU_BACKEND:-cpu}" == "cpu" ]]; then
+    return 0
+  fi
+
+  local vram_mb="${GPU_VRAM:-0}"
+  local current_ctx model_size_mb headroom_mb safe_ctx kv_quant
+
+  current_ctx="$(env_get "$env_file" "CTX_SIZE")"
+  current_ctx="${current_ctx:-16384}"
+
+  # Get model size from .env or fallback to TIER_MODEL_SIZE_MB
+  model_size_mb="$(env_get "$env_file" "LLM_MODEL_SIZE_MB")"
+  model_size_mb="${model_size_mb:-${TIER_MODEL_SIZE_MB:-0}}"
+
+  if [[ "$vram_mb" -eq 0 || "$model_size_mb" -eq 0 ]]; then
+    log "VRAM or model size unknown -- skipping context cap"
+    return 0
+  fi
+
+  # Calculate VRAM headroom (VRAM - model weight - 1 GB overhead for CUDA/driver)
+  headroom_mb=$(( vram_mb - model_size_mb - 1024 ))
+
+  if [[ $headroom_mb -le 0 ]]; then
+    # Model barely fits -- use minimum context
+    safe_ctx=2048
+    kv_quant="q4_0"
+    warn "Model (${model_size_mb}MB) nearly exceeds GPU VRAM (${vram_mb}MB) -- setting CTX_SIZE=${safe_ctx}"
+  elif [[ $headroom_mb -le 2048 ]]; then
+    # ~2 GB headroom
+    safe_ctx=4096
+    kv_quant="q4_0"
+  elif [[ $headroom_mb -le 4096 ]]; then
+    # ~4 GB headroom (typical RTX 3090 with 18.6 GB model)
+    safe_ctx=16384
+    kv_quant="q8_0"
+  elif [[ $headroom_mb -le 8192 ]]; then
+    # ~8 GB headroom
+    safe_ctx=32768
+    kv_quant="q8_0"
+  elif [[ $headroom_mb -le 16384 ]]; then
+    # ~16 GB headroom (e.g., RTX 4090 with smaller model)
+    safe_ctx=65536
+    kv_quant="q8_0"
+  else
+    # >16 GB headroom -- large GPU, let it run
+    safe_ctx=131072
+    kv_quant="f16"
+  fi
+
+  if [[ "$current_ctx" -gt "$safe_ctx" ]]; then
+    log "VRAM budget: ${vram_mb}MB total, ${model_size_mb}MB model, ${headroom_mb}MB headroom"
+    log "Capping CTX_SIZE: ${current_ctx} -> ${safe_ctx} (prevents OOM on ${vram_mb}MB GPU)"
+    env_set "$env_file" "CTX_SIZE" "$safe_ctx"
+
+    # Set KV cache quantization to maximize context within VRAM budget
+    local current_kv_k current_kv_v
+    current_kv_k="$(env_get "$env_file" "LLAMA_ARG_CACHE_TYPE_K")"
+    current_kv_v="$(env_get "$env_file" "LLAMA_ARG_CACHE_TYPE_V")"
+
+    if [[ "${current_kv_k:-f16}" == "f16" && "$kv_quant" != "f16" ]]; then
+      env_set "$env_file" "LLAMA_ARG_CACHE_TYPE_K" "$kv_quant"
+      env_set "$env_file" "LLAMA_ARG_CACHE_TYPE_V" "$kv_quant"
+      log "KV cache quantization: f16 -> ${kv_quant} (reduces VRAM, trades some quality)"
+    fi
+  else
+    log "CTX_SIZE=${current_ctx} fits within VRAM budget (${headroom_mb}MB headroom) -- no change"
   fi
 }
