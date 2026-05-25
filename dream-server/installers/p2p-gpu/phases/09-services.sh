@@ -160,6 +160,7 @@ _handle_oom() {
       curl -sL -o "${models_dir}/${tiny_name}" "$tiny_url"
   fi
   env_set "$env_file" "GGUF_FILE" "$tiny_name"
+  # [NON-FATAL: llama] Individual service failure does not block others.
   docker restart dream-llama-server || warn "llama-server restart failed (non-fatal)"
   echo -n "  Retrying with smaller model "
 }
@@ -175,6 +176,7 @@ _handle_missing_model() {
     fallback=$(find "$models_dir" -name "*.gguf" -size +50M 2>&1 | head -1 | xargs -r basename || echo "")
     if [[ -n "$fallback" ]]; then
       env_set "$env_file" "GGUF_FILE" "$fallback"
+      # [NON-FATAL: llama] Individual service failure does not block others.
       docker restart dream-llama-server || warn "llama-server restart failed (non-fatal)"
       warn "Switched to ${fallback}"
     fi

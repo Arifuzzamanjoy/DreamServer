@@ -95,6 +95,7 @@ export DREAM_HOME="\${DREAM_HOME:-${ds_dir}}"
 cd "${ds_dir}"
 exec "${cli_path}" "\$@"
 EOF
+  # [NON-FATAL: convenience] Missing wrapper only affects global dream alias.
   chmod +x "$wrapper" || warn "chmod failed on ${wrapper} (non-fatal)"
   log "Installed global dream command: ${wrapper}"
 }
@@ -362,6 +363,7 @@ repair_nvml_mismatch() {
     log "No mismatch detected, skipping repair"
     return 0
   elif [[ $initial_status -eq 2 ]]; then
+    # [NON-FATAL: probe] NVML probe may fail on transient driver issues.
     host_probe_output=$(nvidia-smi 2>&1) || warn "nvidia-smi probe failed (non-fatal)"
     if _has_nvml_mismatch_signature "$host_probe_output"; then
       warn "NVIDIA host probe reports driver/library mismatch — forcing repair attempt"
@@ -399,12 +401,14 @@ repair_nvml_mismatch() {
   gpu_containers="$(docker ps --format '{{.Names}}' --filter 'label=com.docker.compose.project' 2>/dev/null | grep '^dream-' || echo "")"  # stderr expected: docker may not be running
   if [[ -n "$gpu_containers" ]]; then
     log "Stopping Docker containers before module reload..."
+    # [NON-FATAL: cleanup] Some containers may already be stopped or unresponsive.
     docker stop $gpu_containers >> "$LOGFILE" 2>&1 || warn "Some containers failed to stop (non-fatal)"
   fi
 
   # Stop persistence daemon if running
   if pgrep -x nvidia-persistenced >/dev/null 2>&1; then  # stderr expected: process check
     log "Stopping nvidia-persistenced..."
+    # [NON-FATAL: cleanup] Persistence daemon may have already exited.
     kill "$(pgrep -x nvidia-persistenced)" 2>/dev/null || warn "nvidia-persistenced not running (non-fatal)"  # stderr expected: may not exist
     sleep 1
   fi
@@ -415,6 +419,7 @@ repair_nvml_mismatch() {
     gpu_pids="$(fuser /dev/nvidia* 2>/dev/null | xargs || echo "")"  # stderr expected: fuser probe
     if [[ -n "$gpu_pids" ]]; then
       log "Killing GPU processes: ${gpu_pids}"
+      # [NON-FATAL: cleanup] Some GPU processes may have already exited.
       kill $gpu_pids 2>/dev/null || warn "some GPU processes already exited (non-fatal)"  # stderr expected: processes may have exited
       sleep 2
     fi
@@ -422,8 +427,11 @@ repair_nvml_mismatch() {
 
   # Unload modules in dependency order
   local reload_success=false
+  # [NON-FATAL: cleanup] Module may not be loaded on this host.
   rmmod nvidia_uvm 2>>"$LOGFILE" || warn "nvidia_uvm not loaded (non-fatal)"
+  # [NON-FATAL: cleanup] Module may not be loaded on this host.
   rmmod nvidia_drm 2>>"$LOGFILE" || warn "nvidia_drm not loaded (non-fatal)"
+  # [NON-FATAL: cleanup] Module may not be loaded on this host.
   rmmod nvidia_modeset 2>>"$LOGFILE" || warn "nvidia_modeset not loaded (non-fatal)"
   if rmmod nvidia 2>>"$LOGFILE"; then
     log "NVIDIA kernel modules unloaded successfully"
@@ -452,17 +460,21 @@ repair_nvml_mismatch() {
     fi
 
     # Restart Docker so it picks up the reloaded driver
+    # [NON-FATAL: docker] Docker may not be managed by systemctl on Vast.ai.
+    # [NON-FATAL: docker] Docker may not be managed by systemctl on Vast.ai.
     systemctl restart docker 2>>"$LOGFILE" || service docker restart 2>>"$LOGFILE" \
       || warn "Docker restart failed (non-fatal)"
 
     # Verify CUDA compat libs aren't shadowing host driver inside containers
     # (per NVIDIA NIM troubleshooting guide — bundled compat libs at
     #  /usr/local/cuda-*/compat/ can override the host-mounted driver)
+    # [NON-FATAL: nvidia-ctk] Toolkit may already be configured or unavailable.
     nvidia-ctk runtime configure --runtime=docker 2>>"$LOGFILE" \
       || warn "nvidia-ctk configure failed (non-fatal)"
 
     # Re-start any containers we stopped
     if [[ -n "$gpu_containers" ]]; then
+      # [NON-FATAL: cleanup] Some containers may fail to restart on driver changes.
       docker start $gpu_containers >> "$LOGFILE" 2>&1 || warn "Some containers failed to restart (non-fatal)"
     fi
 
@@ -485,6 +497,7 @@ repair_nvml_mismatch() {
     driver_major="$(echo "$kernel_version" | cut -d. -f1)"
 
     if type -t _wait_for_dpkg_lock >/dev/null 2>&1; then
+      # [NON-FATAL: dpkg] apt will still enforce DPkg::Lock::Timeout.
       _wait_for_dpkg_lock 60 || warn "dpkg lock not released in time — DPkg::Lock::Timeout will handle"
     fi
 
@@ -516,6 +529,7 @@ repair_nvml_mismatch() {
   # ── Strategy 3: Upgrade everything (original approach) ──────────────────
   log "Strategy 3: Attempting full driver upgrade..."
   if type -t _wait_for_dpkg_lock >/dev/null 2>&1; then
+    # [NON-FATAL: dpkg] apt will still enforce DPkg::Lock::Timeout.
     _wait_for_dpkg_lock 60 || warn "dpkg lock not released in time — DPkg::Lock::Timeout will handle"
   fi
 
@@ -565,6 +579,7 @@ _pin_nvidia_packages() {
   local uu_conf="/etc/apt/apt.conf.d/50unattended-upgrades"
   if [[ -f "$uu_conf" ]] && ! grep -q 'nvidia' "$uu_conf"; then
     if grep -q 'Unattended-Upgrade::Package-Blacklist' "$uu_conf"; then
+      # [NON-FATAL: apt] Blacklist update is best-effort; mismatches are handled elsewhere.
       sed -i '/Unattended-Upgrade::Package-Blacklist/a\    "nvidia-*";' "$uu_conf" 2>>"$LOGFILE" \
         || warn "Failed to add nvidia to unattended-upgrades blacklist (non-fatal)"
       log "Added nvidia-* to unattended-upgrades blacklist"
@@ -588,6 +603,7 @@ apply_post_install_fixes() {
 
   # Docker group membership
   if getent group docker &>/dev/null; then
+    # [NON-FATAL: permissions] User can still run with sudo or log in again.
     usermod -aG docker "$DREAM_USER" || warn "docker group add failed (non-fatal)"
   fi
 
@@ -628,6 +644,7 @@ apply_post_install_fixes() {
         warn "Run 'bash setup.sh --fix' to repair, or manually upgrade nvidia-driver-*"
       elif [[ $mismatch_status -eq 2 ]]; then
         local host_probe_output
+        # [NON-FATAL: probe] NVML probe may fail on transient driver issues.
         host_probe_output=$(nvidia-smi 2>&1) || warn "nvidia-smi probe failed (non-fatal)"
         if _has_nvml_mismatch_signature "$host_probe_output"; then
           warn "Host NVIDIA stack reports driver/library mismatch (non-fatal)"
@@ -648,13 +665,14 @@ _apply_permission_fixes() {
   fix_known_uid_requirements "$data_dir" "$gpu_backend"
   configure_dream_umask
   create_permission_fix_script "$ds_dir"
-  apply_data_acl "${ds_dir}/extensions" || warn "ACL on extensions/ failed (non-fatal)"
+  apply_data_acl "${ds_dir}/extensions"
   if [[ -d "${ds_dir}/user-extensions" ]]; then
     apply_data_acl "${ds_dir}/user-extensions"
   fi
+  # [NON-FATAL: scripts] Missing exec bits only affects helper scripts.
   find "${ds_dir}/scripts" -name "*.sh" -exec chmod +x {} + || warn "chmod scripts failed (non-fatal)"
   mkdir -p "${ds_dir}/logs"
-  apply_data_acl "${ds_dir}/logs" || warn "ACL on logs/ failed (non-fatal)"
+  apply_data_acl "${ds_dir}/logs"
 }
 
 _apply_compatibility_fixes() {

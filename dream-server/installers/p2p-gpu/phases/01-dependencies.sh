@@ -40,12 +40,15 @@ done
 # unattended-upgrades can hold the dpkg lock for minutes on fresh Vast.ai
 # instances. We rely on DPk::Lock::Timeout below, but if the lock is clearly
 # stuck, kill only unattended-upgrades (the typical culprit).
+# [NON-FATAL: dpkg] apt will still enforce DPkg::Lock::Timeout.
 _wait_for_dpkg_lock 90 || warn "dpkg lock not released in time — DPkg::Lock::Timeout will handle"
 
 # Disable unattended-upgrades permanently — it causes NVML mismatches
 # and dpkg lock contention on GPU instances
 if systemctl is-enabled unattended-upgrades &>/dev/null; then  # stderr expected: service check
+  # [NON-FATAL: systemd] Unattended-upgrades may not be managed on this host.
   systemctl disable unattended-upgrades 2>>"$LOGFILE" || warn "Could not disable unattended-upgrades (non-fatal)"
+  # [NON-FATAL: systemd] Unattended-upgrades may not be managed on this host.
   systemctl mask unattended-upgrades 2>>"$LOGFILE" || warn "Could not mask unattended-upgrades (non-fatal)"
   log "Disabled unattended-upgrades (prevents NVIDIA driver/library mismatches)"
 fi

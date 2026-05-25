@@ -40,14 +40,18 @@ set -euo pipefail
       local compose_cmd
       compose_cmd=$(get_compose_cmd)
       if [[ "$compose_cmd" == "docker compose" ]]; then
+        # [NON-FATAL: cleanup] Best-effort teardown — partial cleanup is better than none.
         docker compose down 2>&1 || warn "compose down failed (non-fatal)"
       else
+        # [NON-FATAL: cleanup] Best-effort teardown — partial cleanup is better than none.
         docker-compose down 2>&1 || warn "compose down failed (non-fatal)"
       fi
       for cid in $(docker network inspect dream-network \
         -f '{{range .Containers}}{{.Name}} {{end}}' 2>&1 || echo ""); do
+        # [NON-FATAL: cleanup] Best-effort teardown — partial cleanup is better than none.
         docker network disconnect -f dream-network "$cid" || warn "disconnect ${cid} failed (non-fatal)"
       done
+      # [NON-FATAL: cleanup] Best-effort teardown — partial cleanup is better than none.
       docker network rm dream-network || warn "network rm failed (non-fatal)"
       log "Stale network removed — compose will recreate on next start"
     fi

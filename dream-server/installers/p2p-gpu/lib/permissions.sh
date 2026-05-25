@@ -128,6 +128,7 @@ apply_multi_uid_perms() {
 _extract_compose_uid() {
   local compose_file="$1"
   [[ ! -f "$compose_file" ]] && return 0
+  # [NON-FATAL: discovery] One bad compose file should not block others.
   python3 -c "
 import yaml, re, sys
 try:
@@ -189,8 +190,10 @@ _fix_dynamic_uids() {
         if ! chown -R "${uid}:${uid}" "$ext_data" 2>>"$LOGFILE"; then
           warn "chown ${ext_name} to uid ${uid} failed (non-fatal) — attempting ACL fallback"
           if command -v setfacl &>/dev/null; then
+            # [NON-FATAL: ${ext_name}] Individual service failure does not block others.
             setfacl -R -m "u:${uid}:rwx" "$ext_data" 2>>"$LOGFILE" \
               || warn "setfacl ${ext_name} uid ${uid} failed (non-fatal)"
+            # [NON-FATAL: ${ext_name}] Individual service failure does not block others.
             setfacl -R -d -m "u:${uid}:rwx" "$ext_data" 2>>"$LOGFILE" \
               || warn "setfacl default ${ext_name} uid ${uid} failed (non-fatal)"
           fi
@@ -206,6 +209,7 @@ _fix_uid_exceptions() {
   # qdrant: uid 1000, no user: in compose.yaml — explicit chown required
   if [[ -d "${data_dir}/qdrant" ]]; then
     # best-effort: qdrant-specific ownership — does not block other services
+    # [NON-FATAL: qdrant] Individual service failure does not block others.
     chown -R 1000:1000 "${data_dir}/qdrant" || warn "qdrant ownership fix failed (non-fatal)"
   fi
 
@@ -232,6 +236,7 @@ _fix_uid_exceptions() {
   # whisper: grant known writers uid 1000 + root for cache/bootstrap flows
   if [[ -d "${data_dir}/whisper" ]]; then
     # best-effort: whisper ownership — ACLs above enforce access regardless
+    # [NON-FATAL: whisper] Individual service failure does not block others.
     chown -R 1000:1000 "${data_dir}/whisper" || warn "whisper chown failed (non-fatal)"
     if ! setfacl -R -d -m "u::rwx,u:0:rwx,u:1000:rwx,g::rwx,o::rx" "${data_dir}/whisper"; then
       err "Failed to apply default ACLs on ${data_dir}/whisper — mount may be ACL-incompatible"
@@ -248,6 +253,7 @@ _fix_uid_exceptions() {
   ds_dir=$(dirname "$data_dir")
   if [[ -d "${data_dir}/dashboard-api" ]]; then
     # best-effort: dashboard-api ownership — service starts as uid 1000 regardless
+    # [NON-FATAL: dashboard-api] Individual service failure does not block others.
     chown -R 1000:1000 "${data_dir}/dashboard-api" || warn "dashboard-api chown failed (non-fatal)"
   fi
   if command -v setfacl &>/dev/null && [[ -f "${ds_dir}/.env" ]]; then
@@ -291,6 +297,7 @@ precreate_extension_data_dirs() {
     "${data_dir}/comfyui/ComfyUI/input" \
     "${data_dir}/comfyui/ComfyUI/custom_nodes"
 
+  # [NON-FATAL: extensions] Optional user-extensions directory.
   mkdir -p "${ds_dir}/user-extensions" || warn "could not create user-extensions (non-fatal)"
   log "Pre-created data directories for all known extensions"
 }
@@ -321,6 +328,7 @@ create_permission_fix_script() {
         local uid
         uid=$(_extract_compose_uid "$candidate")
         if [[ -n "$uid" && "$uid" != "0" ]]; then
+          # [NON-FATAL: fix-script] Generated fixer is best-effort by design.
           uid_fix_lines+="[[ -d \"\${DATA_DIR}/${ext_name}\" ]] && chown -R ${uid}:${uid} \"\${DATA_DIR}/${ext_name}\" || warn \"${ext_name} chown failed (non-fatal)\""$'\n'
         fi
         break

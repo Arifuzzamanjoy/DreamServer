@@ -26,6 +26,7 @@ else
 fi
 
 # Sudo access
+# [NON-FATAL: permissions] Sudo group add is convenience; install can proceed.
 usermod -aG sudo "$DREAM_USER" || warn "sudo group add failed (non-fatal)"
 echo "${DREAM_USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-dream
 chmod 440 /etc/sudoers.d/90-dream
@@ -41,7 +42,7 @@ if [[ -d /root/.ssh && ! -d "${DREAM_HOME}/.ssh" ]]; then
   cp -r /root/.ssh "${DREAM_HOME}/.ssh"
   chown -R "${DREAM_USER}:${DREAM_USER}" "${DREAM_HOME}/.ssh"
   chmod 700 "${DREAM_HOME}/.ssh"
-  find "${DREAM_HOME}/.ssh" -type f -exec chmod 600 {} + || warn "ssh key chmod failed (non-fatal)"
+  find "${DREAM_HOME}/.ssh" -type f -exec chmod 600 {} +
 fi
 
 log "User configured"

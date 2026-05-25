@@ -28,6 +28,7 @@ ensure_whisper_ui_compatibility() {
   local whisper_entrypoint="${ds_dir}/extensions/services/whisper/docker-entrypoint.sh"
 
   if [[ -f "$whisper_entrypoint" ]]; then
+    # [NON-FATAL: whisper] Entry point permissions only affect Whisper UI.
     chmod 755 "$whisper_entrypoint" || warn "whisper entrypoint chmod failed (non-fatal)"
   fi
 
@@ -202,6 +203,7 @@ fix_comfyui_permissions() {
 
   for d in "${dirs[@]}"; do
     mkdir -p "$d" || { warn "comfyui mkdir failed on ${d} (non-fatal)"; continue; }
+    # [NON-FATAL: comfyui] ComfyUI will fail its own healthcheck if ACLs remain broken.
     chmod 2775 "$d" && setfacl -R -d -m "u::rwx,u:$(id -u comfyui 2>>"$LOGFILE" || echo 1000):rwx,g::rwx,o::rx" "$d" \
       || warn "comfyui ACL failed on ${d} (non-fatal)"
   done
@@ -234,7 +236,7 @@ comfyui_preload_models() {
     _download_comfyui_model "$models_root" "$url" "$target"
   done
 
-  apply_data_acl "$models_root" || warn "ACL on comfyui models failed (non-fatal)"
+  apply_data_acl "$models_root"
   log "ComfyUI model preload complete"
 }
 
@@ -249,10 +251,12 @@ _download_comfyui_model() {
 
   log "  Downloading: ${target}..."
   if command -v aria2c &>/dev/null; then
+    # [NON-FATAL: comfyui] Optional extra model download failures should not block install.
     aria2c -x 4 -s 4 -k 5M --file-allocation=none --console-log-level=warn \
       -d "$dest_dir" -o "$(basename "$dest")" "$url" 2>&1 | tail -3 \
       || warn "  Failed to download ${target} (non-fatal)"
   else
+    # [NON-FATAL: comfyui] Optional extra model download failures should not block install.
     curl -L --progress-bar -o "$dest" "$url" \
       || warn "  Failed to download ${target} (non-fatal)"
   fi

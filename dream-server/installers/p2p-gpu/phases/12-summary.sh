@@ -17,5 +17,6 @@ step "Phase 12/12: Setup complete"
 
 print_access_info "$DS_DIR"
 
+# [NON-FATAL: logging] Summary logging should not block completion.
 echo "=== Setup completed at $(_ts) ===" >> "$LOGFILE" || warn "logfile write failed (non-fatal)"
 log "Setup complete! Core services ready. Heavy services downloading in background."

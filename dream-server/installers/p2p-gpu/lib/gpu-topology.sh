@@ -39,6 +39,7 @@ enumerate_gpus() {
       GPU_VRAMS+=("${vram%%.*}")  # truncate decimals
       GPU_NAMES+=("$name")
       GPU_TOTAL_VRAM=$(( GPU_TOTAL_VRAM + ${vram%%.*} ))
+    # [NON-FATAL: probe] Topology is best-effort; fallback uses env values.
     done < <(nvidia-smi --query-gpu=gpu_uuid,memory.total,name \
       --format=csv,noheader,nounits 2>>"$LOGFILE" || warn "nvidia-smi GPU enumeration failed (non-fatal)")
 
@@ -251,7 +252,9 @@ run_gpu_assignment() {
 
   # Save topology for dashboard-api
   mkdir -p "${ds_dir}/config"
+  # [NON-FATAL: telemetry] Topology persistence only aids dashboard visibility.
   cp "$topo_file" "${ds_dir}/config/gpu-topology.json" 2>>"$LOGFILE" || warn "failed to persist gpu-topology.json (non-fatal)"
+  # [NON-FATAL: telemetry] Topology persistence only aids dashboard visibility.
   chmod 644 "${ds_dir}/config/gpu-topology.json" 2>>"$LOGFILE" || warn "failed to set mode on gpu-topology.json (non-fatal)"
 
   # Enable P2P transfers when NVLink detected (avoids host RAM round-trip)

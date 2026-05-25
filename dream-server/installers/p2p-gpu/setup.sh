@@ -134,6 +134,7 @@ main() {
   setup_cleanup_trap
   acquire_lock
   mkdir -p "$(dirname "$LOGFILE")"
+  # [NON-FATAL: logging] Setup can proceed even if the logfile is unwritable.
   echo "=== Setup started at $(_ts) ===" >> "$LOGFILE" || warn "logfile write failed (non-fatal)"
 
   _check_existing_install
