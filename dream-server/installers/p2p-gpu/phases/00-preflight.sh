@@ -130,9 +130,11 @@ _verify_nvidia_passthrough() {
     if ! dpkg -l nvidia-container-toolkit &>/dev/null; then
       warn "nvidia-container-toolkit not installed — attempting install"
 
+      # [NON-FATAL: dpkg] apt will still enforce DPkg::Lock::Timeout.
       _wait_for_dpkg_lock 60 || warn "dpkg lock not released in time — DPkg::Lock::Timeout will handle"
 
       local keyring="/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg"
+      # [NON-FATAL: repo] Transient GPG/keyring failures should not halt install.
       curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
         | gpg --dearmor --batch --yes --output "$keyring" 2>>"$LOGFILE" \
         || warn "gpg key import failed (non-fatal)"
@@ -141,7 +143,9 @@ _verify_nvidia_passthrough() {
         | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null
       apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" update -qq 2>>"$LOGFILE" \
         && apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" install -y -qq nvidia-container-toolkit 2>>"$LOGFILE"
+      # [NON-FATAL: nvidia-ctk] Toolkit may already be configured or unavailable.
       nvidia-ctk runtime configure --runtime=docker 2>>"$LOGFILE" || warn "nvidia-ctk configure failed (non-fatal)"
+      # [NON-FATAL: docker] Docker may not be managed by systemctl on Vast.ai.
       systemctl restart docker 2>>"$LOGFILE" || service docker restart 2>>"$LOGFILE" \
         || warn "docker restart failed (non-fatal)"
       log "nvidia-container-toolkit installed and configured"

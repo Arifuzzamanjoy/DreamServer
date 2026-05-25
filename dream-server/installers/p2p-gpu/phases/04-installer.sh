@@ -80,9 +80,11 @@ waited=0
 while kill -0 "$installer_pid" 2>/dev/null; do  # stderr expected: process may exit between checks
   if [[ $waited -ge $INSTALLER_TIMEOUT ]]; then
     warn "Installer reached ${INSTALLER_TIMEOUT}s limit — proceeding with setup"
+    # [NON-FATAL: cleanup] Installer may have exited before TERM.
     kill -TERM "$installer_pid" 2>>"$LOGFILE" || warn "could not TERM installer (non-fatal)"
     sleep 2
     if kill -0 "$installer_pid" 2>>"$LOGFILE"; then
+      # [NON-FATAL: cleanup] Installer may have exited before KILL.
       kill -9 "$installer_pid" 2>>"$LOGFILE" || warn "could not KILL installer (non-fatal)"
     fi
     # Child processes of the installer should die with their parent.

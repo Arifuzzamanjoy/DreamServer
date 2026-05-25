@@ -64,6 +64,7 @@ _ensure_persona_file() {
   # If Docker already created it as a directory, remove it
   if [[ -d "$persona_file" ]]; then
     log "Removing Docker-created directory at ${persona_file}"
+    # [NON-FATAL: cleanup] Best-effort cleanup; template fallback still works.
     rm -rf "$persona_file" 2>>"$LOGFILE" || warn "Could not remove directory at ${persona_file} (non-fatal)"
   fi
 

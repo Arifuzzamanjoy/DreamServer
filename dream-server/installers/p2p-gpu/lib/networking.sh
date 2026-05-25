@@ -39,6 +39,7 @@ expose_ports_for_vastai() {
       sed -i 's/"127\.0\.0\.1:/"0.0.0.0:/g' "$compose_file"
       count=$((count + 1))
     fi
+  # [NON-FATAL: discovery] Missing compose files just skips port rebinding.
   done < <(find "$ds_dir" -maxdepth 4 \
     \( -name "docker-compose*.yml" -o -name "compose*.yaml" -o -name "compose*.yml" \) \
     -print0 2>&1 || warn "find compose files failed (non-fatal)")
@@ -162,6 +163,7 @@ _start_caddy() {
   if pgrep -x caddy > /dev/null 2>&1; then
     local old_pid
     old_pid=$(pgrep -x caddy | head -1)
+    # [NON-FATAL: cleanup] Old proxy process may have already exited.
     kill "$old_pid" || warn "could not kill old caddy PID ${old_pid} (non-fatal)"
     sleep 1
   fi
@@ -295,6 +297,7 @@ setup_cloudflare_tunnel() {
   TUNNEL_TOKEN="$cf_token" nohup cloudflared tunnel --no-autoupdate run --token-from-env TUNNEL_TOKEN \
     >> "${ds_dir}/logs/cloudflared.log" 2>&1 &
   local cf_pid=$!
+  # [NON-FATAL: pidfile] Missing pidfile only affects teardown cleanup.
   _store_pid "cloudflared" "$cf_pid" 2>>"$LOGFILE" || warn "could not persist cloudflared pid (non-fatal)"
   log "Cloudflare Tunnel started (PID: ${cf_pid}) — HTTPS access active"
 }

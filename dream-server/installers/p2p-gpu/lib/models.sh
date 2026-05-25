@@ -109,11 +109,17 @@ resolve_tier_for_gpu() {
       TIER_GGUF_FILE="Qwen3-30B-A3B-Q4_K_M.gguf"
       TIER_GGUF_URL="https://huggingface.co/unsloth/Qwen3-30B-A3B-GGUF/resolve/main/Qwen3-30B-A3B-Q4_K_M.gguf"
       TIER_MODEL_SIZE_MB=18600
-    elif [[ $effective_vram -ge 4000 ]]; then
-      # Tier 1-2: RTX 3060 (12GB), RTX 3070 (8GB), RTX 3080 (10GB)
+    elif [[ $effective_vram -ge 12000 ]]; then
+      # Tier 2: RTX 3060 (12GB), RTX 4070 (12GB), RTX 3080 Ti (12GB)
       TIER_GGUF_FILE="Qwen3.5-9B-Q4_K_M.gguf"
       TIER_GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf"
       TIER_MODEL_SIZE_MB=5760
+    elif [[ $effective_vram -ge 4000 ]]; then
+      # Tier 1: RTX 3070 (8GB), RTX 3080 (10GB), GPUs with 4-12GB VRAM
+      # 4B model (2,870 MB) leaves enough headroom for KV cache on 8GB GPUs
+      TIER_GGUF_FILE="Qwen3.5-4B-Q4_K_M.gguf"
+      TIER_GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
+      TIER_MODEL_SIZE_MB=2870
     else
       # Tier 0: <4GB VRAM or CPU-only
       TIER_GGUF_FILE="Qwen3.5-2B-Q4_K_M.gguf"
@@ -148,6 +154,7 @@ check_disk_for_download() {
 # Store a background process PID so we can stop it safely later.
 _store_pid() {
   local name="$1" pid="$2"
+  # [NON-FATAL: pidfile] Missing pidfile dir only affects cleanup tracking.
   mkdir -p "$PIDFILE_DIR" 2>>"$LOGFILE" || warn "could not create pidfile directory ${PIDFILE_DIR} (non-fatal)"
   echo "$pid" > "${PIDFILE_DIR}/${name}.pid"
 }
@@ -160,6 +167,7 @@ _kill_stored_pid() {
   local pid
   pid=$(cat "$pidfile" 2>>"$LOGFILE" || echo "")
   if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then  # stderr expected: process may already have exited
+    # [NON-FATAL: cleanup] Process may already be gone; continue cleanup.
     kill "$pid" 2>>"$LOGFILE" || warn "Could not kill ${name} (PID ${pid})"
   fi
   rm -f "$pidfile"
@@ -372,19 +380,32 @@ swap_model() {
     echo "LLM_MODEL=${new_llm_model}" >> "$ENV_FILE"
   fi
 
+  # Update model size for VRAM budget calculations
+  local new_size_mb
+  new_size_mb=$(stat -c%s "$model_path" 2>/dev/null || echo 0) # stderr expected: file can disappear during cleanup
+  new_size_mb=$(( new_size_mb / 1048576 ))
+  sed -i "s|^LLM_MODEL_SIZE_MB=.*|LLM_MODEL_SIZE_MB=${new_size_mb}|" "$ENV_FILE"
+  if ! grep -q '^LLM_MODEL_SIZE_MB=' "$ENV_FILE"; then
+    echo "LLM_MODEL_SIZE_MB=${new_size_mb}" >> "$ENV_FILE"
+  fi
+
   # Use compose recreate (re-reads .env) instead of docker restart (ignores .env changes)
   local cmd
   cmd=$(compose_cmd)
   if [[ "$cmd" == "docker compose" ]]; then
+    # [NON-FATAL: service] Llama restart can be retried if compose fails.
     cd "$SCRIPT_DIR" && docker compose up -d llama-server || warn "compose recreate failed (non-fatal)"
   elif [[ "$cmd" == "docker-compose" ]]; then
+    # [NON-FATAL: service] Llama restart can be retried if compose fails.
     cd "$SCRIPT_DIR" && docker-compose up -d llama-server || warn "compose recreate failed (non-fatal)"
   else
+    # [NON-FATAL: service] Restart failure should not block the watcher.
     docker restart dream-llama-server || warn "llama-server restart failed (non-fatal)"
   fi
   # Restart dependent services so they pick up new model env / auto-detection.
   for cname in dream-dreamforge dream-openclaw dream-dashboard-api; do
     if docker ps --format '{{.Names}}' | grep -qx "$cname"; then
+      # [NON-FATAL: service] Dependent restarts are best-effort.
       docker restart "$cname" || warn "${cname} restart failed (non-fatal)"
     fi
   done

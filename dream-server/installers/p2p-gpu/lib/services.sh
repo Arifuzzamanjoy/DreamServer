@@ -22,11 +22,75 @@
 
 set -euo pipefail
 
+# Resolve dream-network gateway for host-agent binding.
+_resolve_dream_network_gateway() {
+  local gateway
+  gateway=$(docker network inspect dream-network \
+    --format '{{(index .IPAM.Config 0).Gateway}}' 2>>"$LOGFILE" | head -1 || echo "")
+  gateway=$(echo "$gateway" | xargs)
+  if [[ "$gateway" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "$gateway"
+    return 0
+  fi
+  return 1
+}
+
+_is_loopback_addr() {
+  case "$1" in
+    ""|"127.0.0.1"|"localhost"|"::1") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+_restart_host_agent() {
+  local ds_dir="$1"
+  local dream_cli="${ds_dir}/dream-cli"
+
+  if [[ ! -x "$dream_cli" ]]; then
+    warn "dream-cli not found at ${dream_cli} — skipping host agent restart"
+    return 1
+  fi
+
+  # [NON-FATAL: host-agent] Restart can be retried manually if it fails.
+  su - "$DREAM_USER" -c "cd ${ds_dir} && DREAM_HOME=${ds_dir} ./dream-cli agent restart" \
+    >> "$LOGFILE" 2>&1 || { warn "Host agent restart failed (non-fatal)"; return 1; }
+  return 0
+}
+
+# Ensure host agent binds to the Dream network gateway so containers can reach it.
+_ensure_host_agent_network_binding() {
+  local ds_dir="$1"
+  local env_file="${ds_dir}/.env"
+  [[ ! -f "$env_file" ]] && return 0
+
+  local gateway
+  gateway=$(_resolve_dream_network_gateway) || return 0
+
+  local bind host updated=false
+  bind="$(env_get "$env_file" "DREAM_AGENT_BIND")"
+  host="$(env_get "$env_file" "DREAM_AGENT_HOST")"
+
+  if _is_loopback_addr "$bind"; then
+    env_set "$env_file" "DREAM_AGENT_BIND" "$gateway"
+    updated=true
+  fi
+  if _is_loopback_addr "$host"; then
+    env_set "$env_file" "DREAM_AGENT_HOST" "$gateway"
+    updated=true
+  fi
+
+  if [[ "$updated" == "true" ]]; then
+    log "Pinned host agent binding to dream-network gateway ${gateway}"
+    _restart_host_agent "$ds_dir" || warn "Host agent restart after bind update failed (non-fatal)"
+  fi
+}
+
 # Ensure Dream host agent is running so Dashboard model downloads can start.
 _ensure_host_agent_running() {
   local ds_dir="$1"
   local dream_cli="${ds_dir}/dream-cli"
   local agent_port agent_bind
+  local agent_probe
 
   if [[ ! -x "$dream_cli" ]]; then
     warn "dream-cli not found at ${dream_cli} — skipping host agent auto-start"
@@ -37,8 +101,12 @@ _ensure_host_agent_running() {
   agent_port="${agent_port:-7710}"
   agent_bind="$(grep '^DREAM_AGENT_BIND=' "${ds_dir}/.env" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]' || echo "127.0.0.1")"  # stderr expected: .env may not exist
   agent_bind="${agent_bind:-127.0.0.1}"
+  agent_probe="$agent_bind"
+  if [[ "$agent_probe" == "0.0.0.0" || "$agent_probe" == "::" ]]; then
+    agent_probe="127.0.0.1"
+  fi
 
-  if curl -sf --max-time 2 "http://${agent_bind}:${agent_port}/health" >/dev/null 2>&1; then
+  if curl -sf --max-time 2 "http://${agent_probe}:${agent_port}/health" >/dev/null 2>&1; then
     log "Host agent already running on port ${agent_port}"
     return 0
   fi
@@ -58,6 +126,7 @@ _ensure_host_agent_running() {
   local attempt pid_file="${ds_dir}/data/dream-host-agent.pid" wait_elapsed
   for attempt in 1 2; do
     log "Starting host agent (attempt ${attempt}/2)..."
+    # [NON-FATAL: host-agent] Start failure can be retried or handled manually.
     su - "$DREAM_USER" -c "cd ${ds_dir} && DREAM_HOME=${ds_dir} ./dream-cli agent start" \
       >> "$LOGFILE" 2>&1 || warn "dream-cli agent start returned non-zero (attempt ${attempt})"
 
@@ -65,7 +134,7 @@ _ensure_host_agent_running() {
     while [[ $wait_elapsed -lt 20 ]]; do
       sleep 3
       wait_elapsed=$((wait_elapsed + 3))
-      if curl -sf --max-time 2 "http://${agent_bind}:${agent_port}/health" >/dev/null 2>&1; then
+      if curl -sf --max-time 2 "http://${agent_probe}:${agent_port}/health" >/dev/null 2>&1; then
         log "Host agent verified running on port ${agent_port} (attempt ${attempt})"
         return 0
       fi
@@ -74,6 +143,7 @@ _ensure_host_agent_running() {
     if [[ $attempt -eq 1 ]]; then
       warn "Host agent not responding after start — retrying..."
       if [[ -f "$pid_file" ]]; then
+        # [NON-FATAL: cleanup] Stale pid cleanup should not block host agent retry.
         kill "$(cat "$pid_file")" 2>>"$LOGFILE" || warn "stale host agent pid in ${pid_file} could not be killed"
         rm -f "$pid_file"
       fi
@@ -170,6 +240,7 @@ PY
 # Read a field from a manifest.yaml service: block
 read_manifest_field() {
   local manifest="$1" field="$2"
+  # [NON-FATAL: discovery] A single bad manifest should not block others.
   python3 -c "
 import yaml, sys
 try:
@@ -183,7 +254,7 @@ try:
 except yaml.YAMLError as e:
     print(f'YAML parse error in {sys.argv[1]}: {e}', file=sys.stderr)
 except OSError as e:
-    print(f'File read error {sys.argv[1]}: {e}', file=sys.stderr)
+  print(f'File read error {sys.argv[1]}: {e}', file=sys.stderr)
 " "$manifest" "$field" || warn "manifest field read failed for ${manifest}:${field} (non-fatal)"
 }
 
@@ -202,6 +273,7 @@ discover_all_services() {
     [[ ! -d "$ext_root" ]] && continue
     for manifest in "${ext_root}"/*/manifest.yaml; do
       [[ ! -f "$manifest" ]] && continue
+          # [NON-FATAL: discovery] A single bad manifest should not block others.
           python3 -c "import os, yaml, sys; data = yaml.safe_load(open(sys.argv[1])) or {}; svc = data.get('service') or {}; sid = svc.get('id', ''); port_env = svc.get('external_port_env', ''); port_def = svc.get('external_port_default', ''); name = svc.get('name', sid); cat = svc.get('category', 'optional'); hints = {}; hints_path = sys.argv[2] if len(sys.argv) > 2 else ''; hints = ((yaml.safe_load(open(hints_path)) or {}).get(sid, {}) if (hints_path and os.path.exists(hints_path) and sid) else {}); proxy = hints.get('proxy_mode', svc.get('proxy_mode', 'simple')); startup = hints.get('startup_behavior', svc.get('startup_behavior', 'normal')); cname = svc.get('container_name', ''); htimeout = svc.get('health_timeout', 0); startup = 'heavy' if startup == 'normal' and isinstance(htimeout, (int, float)) and htimeout > 20 else startup; print(f'{sid}|{port_env}|{port_def}|{name}|{cat}|{proxy}|{startup}|{cname}') if sid else None" "$manifest" "$hints_file" || warn "service discovery failed for ${manifest} (non-fatal)"
     done
   done
@@ -280,6 +352,7 @@ prepull_docker_images() {
   count=$(echo "$images" | wc -l)
   log "Pre-pulling ${count} Docker images (${max_parallel} parallel)..."
 
+  # [NON-FATAL: images] Images can be pulled later during compose up.
   echo "$images" | xargs -P "$max_parallel" -I {} sh -c \
     'docker pull {} >/dev/null 2>&1 && echo "  pulled: {}" || echo "  skip:   {} (will retry at compose up)"' \
     || warn "some image pulls failed (non-fatal)"
@@ -301,8 +374,10 @@ _cleanup_stale_network() {
   log "Removing stale dream-network (missing compose labels)..."
   for cid in $(docker network inspect dream-network \
     -f '{{range .Containers}}{{.Name}} {{end}}' 2>&1 || echo ""); do
+    # [NON-FATAL: cleanup] Best-effort teardown — partial cleanup is better than none.
     docker network disconnect -f dream-network "$cid" || warn "disconnect ${cid} failed (non-fatal)"
   done
+  # [NON-FATAL: cleanup] Best-effort teardown — partial cleanup is better than none.
   docker network rm dream-network || warn "network rm failed (non-fatal)"
 }
 
@@ -451,6 +526,7 @@ _heal_dashboard_api_proxy() {
   if curl -sf --max-time 3 "http://127.0.0.1:${dashboard_api_port}/health" >/dev/null 2>&1 \
     && ! curl -sf --max-time 4 "http://127.0.0.1:${dashboard_port}/api/status" >/dev/null 2>&1; then
     warn "Dashboard returned API 502 while dashboard-api is healthy — restarting dashboard to refresh upstream"
+    # [NON-FATAL: dashboard] Individual service failure does not block others.
     docker restart dream-dashboard 2>>"$LOGFILE" || warn "dashboard restart failed (non-fatal)"
   fi
 }
@@ -516,6 +592,7 @@ start_services() {
     if ! _compose_up_with_cpu_heal "$ds_dir" "$compose_cmd" "$compose_flags" "$env_file" \
       "core services" llama-server dashboard-api open-webui dashboard; then
       warn "Core compose with llama failed — bringing up control plane only"
+      # [NON-FATAL: compose] Fallback failure still allows manual recovery.
       _compose_up_with_cpu_heal "$ds_dir" "$compose_cmd" "$compose_flags" "$env_file" \
         "control-plane services" dashboard-api dashboard open-webui \
         || warn "control-plane compose up also failed (non-fatal)"
@@ -526,7 +603,9 @@ start_services() {
   normalized_ports=$(_normalize_dashboard_api_port_envs "$env_file")
   if [[ -n "$normalized_ports" ]]; then
     log "Normalized commented port env values in .env: ${normalized_ports//$'\n'/, }"
+    # [NON-FATAL: dashboard] Individual service failure does not block others.
     docker restart dream-dashboard-api 2>>"$LOGFILE" || warn "dashboard-api restart failed (non-fatal)"
+    # [NON-FATAL: dashboard] Individual service failure does not block others.
     docker restart dream-dashboard 2>>"$LOGFILE" || warn "dashboard restart failed (non-fatal)"
   fi
 
@@ -538,17 +617,22 @@ start_services() {
     warn "Some containers are still in Created state — attempting docker start"
     while IFS= read -r cname; do
       [[ -z "$cname" ]] && continue
+      # [NON-FATAL: service] Individual service failure does not block others.
       docker start "$cname" >/dev/null 2>&1 || warn "start ${cname} failed (non-fatal)"
     done <<< "$created"
   fi
 
   # Nudge dashboard if stuck in Created state
   if docker ps -a --format '{{.Names}} {{.Status}}' 2>&1 | grep -q 'dream-dashboard Created'; then
+    # [NON-FATAL: dashboard] Individual service failure does not block others.
     docker start dream-dashboard || warn "dashboard kick failed (non-fatal)"
     log "Kicked dashboard out of Created state"
   fi
 
   _heal_dashboard_api_proxy "$env_file"
+  _ensure_host_agent_network_binding "$ds_dir"
+  # [NON-FATAL: host-agent] Agent availability only affects background downloads.
   _ensure_host_agent_running "$ds_dir" || warn "Host agent unavailable - model downloads may fail until agent is started manually"
+  # [NON-FATAL: opencode] Optional service; failures do not block others.
   _ensure_opencode_web_running "$ds_dir" || warn "OpenCode web unavailable (non-fatal)"
 }

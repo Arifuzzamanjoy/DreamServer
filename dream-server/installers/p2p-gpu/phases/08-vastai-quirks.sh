@@ -25,6 +25,7 @@ if ! command -v systemctl &>/dev/null && ! pidof systemd &>/dev/null; then
   if [[ -x "$dream_cli" ]]; then
     # Start host agent early on no-systemd hosts so model downloads and dashboard
     # operations are available before the compose stack fully settles.
+    # [NON-FATAL: host-agent] Agent start can be retried in later phases.
     su - "$DREAM_USER" -c "cd ${DS_DIR} && DREAM_HOME=${DS_DIR} ./dream-cli agent start" 2>&1 || \
       warn "Host agent start failed (non-fatal — will retry in phase 09)"
   fi
@@ -35,10 +36,13 @@ if docker ps -a --format '{{.Names}} {{.Status}}' 2>&1 | grep -q 'dream-opencode
   warn "OpenCode is crash-looping — disabling to unblock other services"
   dream_cli="${DS_DIR}/dream-cli"
   if [[ -x "$dream_cli" ]]; then
+    # [NON-FATAL: opencode] Individual service failure does not block others.
     su - "$DREAM_USER" -c "cd ${DS_DIR} && ./dream-cli disable opencode" 2>&1 \
       || warn "dream-cli disable opencode failed (non-fatal)"
   else
+    # [NON-FATAL: opencode] Individual service failure does not block others.
     docker stop dream-opencode || warn "opencode stop failed (non-fatal)"
+    # [NON-FATAL: opencode] Individual service failure does not block others.
     docker rm dream-opencode || warn "opencode rm failed (non-fatal)"
   fi
 fi
@@ -48,6 +52,7 @@ shm_size_kb=$(df /dev/shm 2>&1 | awk 'NR==2{print $2}' || echo 0)
 if [[ "${shm_size_kb:-0}" -lt 1048576 ]]; then
   shm_mb=$(( shm_size_kb / 1024 ))
   warn "/dev/shm is only ${shm_mb} MB — GPU containers may be memory-starved"
+  # [NON-FATAL: perf] Remount is a performance optimization only.
   mount -o remount,size=4G /dev/shm || warn "/dev/shm remount failed (non-fatal)"
 fi
 

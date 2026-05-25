@@ -25,8 +25,10 @@ cmd_teardown() {
     local compose_cmd
     compose_cmd=$(get_compose_cmd)
     if [[ "$compose_cmd" == "docker compose" ]]; then
+      # [NON-FATAL: cleanup] Best-effort teardown — partial cleanup is better than none.
       docker compose down --remove-orphans 2>&1 || warn "Compose down had warnings (non-fatal)"
     else
+      # [NON-FATAL: cleanup] Best-effort teardown — partial cleanup is better than none.
       docker-compose down --remove-orphans 2>&1 || warn "Compose down had warnings (non-fatal)"
     fi
   fi
