@@ -44,6 +44,9 @@ if [[ -n "$alt_dir" && -f "${alt_dir}/.env" ]]; then
   log "Also fixed secondary directory: ${alt_dir}"
 fi
 
+# Cap llama-server context based on GPU VRAM budget
+_cap_context_for_vram "$DS_DIR"
+
 # -- Ensure data/persona/SOUL.md exists ------------------------------------
 # Hermes compose bind-mounts this file. If missing, Docker creates it as a
 # directory -> container crashes with "not a directory" error.

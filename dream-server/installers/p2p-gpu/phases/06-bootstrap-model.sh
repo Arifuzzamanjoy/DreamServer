@@ -39,6 +39,11 @@ tier_gguf="${TIER_GGUF_FILE}"
 tier_url="${TIER_GGUF_URL}"
 tier_size_mb="${TIER_MODEL_SIZE_MB}"
 
+# Persist model size for VRAM budget calculations in later phases
+if [[ "${TIER_MODEL_SIZE_MB:-0}" -gt 0 ]]; then
+  env_set "$env_file" "LLM_MODEL_SIZE_MB" "$TIER_MODEL_SIZE_MB"
+fi
+
 if [[ -n "$tier_gguf" ]]; then
   log "GPU-optimal model for ${GPU_BACKEND} (${GPU_VRAM:-0}MB VRAM): ${tier_gguf} (~${tier_size_mb}MB)"
 else
@@ -204,3 +209,6 @@ fi
 
 fix_known_uid_requirements "$data_dir" "$GPU_BACKEND"
 apply_data_acl "$models_dir"
+
+# Re-run VRAM context cap now that we know the actual model size
+_cap_context_for_vram "$DS_DIR"
