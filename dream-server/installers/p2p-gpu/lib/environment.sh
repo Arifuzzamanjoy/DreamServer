@@ -777,6 +777,11 @@ _cap_context_for_vram() {
   fi
 
   local vram_mb="${GPU_VRAM:-0}"
+
+  # Multi-GPU: use total VRAM across all GPUs for headroom calculation
+  if [[ "${GPU_COUNT:-1}" -ge 2 && "${GPU_TOTAL_VRAM:-0}" -gt 0 ]]; then
+    vram_mb="${GPU_TOTAL_VRAM}"
+  fi
   local current_ctx model_size_mb headroom_mb safe_ctx kv_quant
 
   current_ctx="$(env_get "$env_file" "CTX_SIZE")"
