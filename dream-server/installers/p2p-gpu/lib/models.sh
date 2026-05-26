@@ -37,6 +37,19 @@ resolve_tier_for_gpu() {
   local ds_dir="$1" gpu_backend="$2" vram_mb="${3:-0}" gpu_count="${4:-1}"
   local tier_map="${ds_dir}/installers/lib/tier-map.sh"
 
+  local total_vram_mb="${GPU_TOTAL_VRAM:-$(( vram_mb * gpu_count ))}"
+  local reserve_mb_per_gpu="${P2P_TIER_VRAM_RESERVE_MB:-1024}"
+  local effective_vram_mb="$vram_mb"
+  if [[ "$gpu_count" -ge 2 ]]; then
+    local reserve_total=$(( reserve_mb_per_gpu * gpu_count ))
+    if [[ "$total_vram_mb" -gt "$reserve_total" ]]; then
+      effective_vram_mb=$(( total_vram_mb - reserve_total ))
+    else
+      effective_vram_mb="$total_vram_mb"
+    fi
+    log "Tier VRAM budget: per_gpu=${vram_mb}MB total=${total_vram_mb}MB reserve=${reserve_mb_per_gpu}MB x${gpu_count} -> effective=${effective_vram_mb}MB"
+  fi
+
   TIER_GGUF_FILE=""
   TIER_GGUF_URL=""
   TIER_MODEL_SIZE_MB=0
@@ -45,26 +58,18 @@ resolve_tier_for_gpu() {
   if [[ -f "$tier_map" ]]; then
     local tier=""
     if [[ "$gpu_backend" == "nvidia" ]]; then
-      if [[ $vram_mb -ge 90000 ]]; then tier="NV_ULTRA"
-      elif [[ $vram_mb -ge 40000 ]]; then tier=4
-      elif [[ $vram_mb -ge 20000 ]]; then tier=3
-      elif [[ $vram_mb -ge 12000 ]]; then tier=2
-      elif [[ $vram_mb -lt 4000 ]]; then tier=0
+      if [[ $effective_vram_mb -ge 90000 ]]; then tier="NV_ULTRA"
+      elif [[ $effective_vram_mb -ge 40000 ]]; then tier=4
+      elif [[ $effective_vram_mb -ge 20000 ]]; then tier=3
+      elif [[ $effective_vram_mb -ge 12000 ]]; then tier=2
+      elif [[ $effective_vram_mb -lt 4000 ]]; then tier=0
       else tier=1; fi
     elif [[ "$gpu_backend" == "amd" ]]; then
-      if [[ $vram_mb -ge 20000 ]]; then tier=3
-      elif [[ $vram_mb -ge 12000 ]]; then tier=2
+      if [[ $effective_vram_mb -ge 20000 ]]; then tier=3
+      elif [[ $effective_vram_mb -ge 12000 ]]; then tier=2
       else tier=1; fi
     else
       tier=0  # CPU-only
-    fi
-
-    # Multi-GPU boost — use total VRAM across all GPUs
-    if [[ $gpu_count -ge 2 ]]; then
-      local total_vram="${GPU_TOTAL_VRAM:-$(( vram_mb * gpu_count ))}"
-      if [[ $total_vram -ge 90000 ]]; then tier="NV_ULTRA"
-      elif [[ $total_vram -ge 40000 ]]; then tier=4
-      elif [[ $total_vram -ge 20000 ]]; then tier=3; fi
     fi
 
     # Source upstream tier-map in a subshell to avoid polluting our namespace
@@ -84,7 +89,7 @@ resolve_tier_for_gpu() {
       TIER_GGUF_URL="${rest%%|*}"
       TIER_MODEL_SIZE_MB="${rest##*|}"
       if [[ -n "$TIER_GGUF_FILE" ]]; then
-        log "Tier resolved via upstream tier-map: ${TIER_GGUF_FILE} (tier ${tier}, ${vram_mb}MB VRAM)"
+        log "Tier resolved via upstream tier-map: ${TIER_GGUF_FILE} (tier ${tier}, ${effective_vram_mb}MB effective VRAM)"
         return 0
       fi
     fi
@@ -93,11 +98,7 @@ resolve_tier_for_gpu() {
   # Strategy 2: Built-in VRAM lookup (fallback when tier-map.sh unavailable)
   # Uses qwen profile defaults matching upstream's set_qwen_tier_config()
   if [[ "$gpu_backend" == "nvidia" || "$gpu_backend" == "amd" ]]; then
-    local effective_vram=$vram_mb
-    # For multi-GPU, use total VRAM
-    if [[ $gpu_count -ge 2 ]]; then
-      effective_vram="${GPU_TOTAL_VRAM:-$(( vram_mb * gpu_count ))}"
-    fi
+    local effective_vram="$effective_vram_mb"
 
     if [[ $effective_vram -ge 90000 ]]; then
       # NV_ULTRA: B200 (180GB), multi-A100/H100, etc.
@@ -132,7 +133,7 @@ resolve_tier_for_gpu() {
     TIER_MODEL_SIZE_MB=1500
   fi
 
-  log "Tier resolved via built-in lookup: ${TIER_GGUF_FILE} (${vram_mb}MB VRAM)"
+  log "Tier resolved via built-in lookup: ${TIER_GGUF_FILE} (${effective_vram_mb}MB effective VRAM)"
 }
 
 # ── [FIX: disk-check] Verify sufficient disk before starting a download ─────
