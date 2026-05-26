@@ -24,6 +24,16 @@ set -euo pipefail
 
 step "Phase 6/12: Ensuring bootstrap model is available"
 
+# Derive LLM_MODEL identifier from GGUF filename.
+# Strips .gguf extension and quantization suffix, lowercases.
+# Example: Qwen3-30B-A3B-Q4_K_M.gguf -> qwen3-30b-a3b
+_derive_llm_model() {
+  echo "$1" \
+    | sed -E 's/\.(gguf|GGUF)$//' \
+    | sed -E 's/-Q[0-9]+([._][A-Za-z0-9]+)*$//' \
+    | tr '[:upper:]' '[:lower:]'
+}
+
 env_file="${DS_DIR}/.env"
 data_dir="${DS_DIR}/data"
 models_dir="${data_dir}/models"
@@ -57,6 +67,7 @@ if [[ -n "$tier_gguf" && -f "${models_dir}/${tier_gguf}" ]]; then
   file_size=$(stat -c%s "${models_dir}/${tier_gguf}" || echo 0)
   if [[ $file_size -gt 100000000 ]]; then
     env_set "$env_file" "GGUF_FILE" "$tier_gguf"
+    env_set "$env_file" "LLM_MODEL" "$(_derive_llm_model "$tier_gguf")"
     model_ready=true
     log "Tier model already present: ${tier_gguf} ($(( file_size / 1048576 )) MB)"
   else
@@ -73,6 +84,9 @@ if [[ "$model_ready" != "true" ]]; then
     if [[ $file_size -gt 100000000 ]]; then
       model_ready=true
       log "Model verified: ${gguf_file} ($(( file_size / 1048576 )) MB)"
+      if [[ -z "$(env_get "$env_file" "LLM_MODEL")" ]]; then
+        env_set "$env_file" "LLM_MODEL" "$(_derive_llm_model "$gguf_file")"
+      fi
     else
       warn "Model file exists but too small (${file_size} bytes) — likely corrupt"
       rm -f "${models_dir}/${gguf_file}"
@@ -86,6 +100,7 @@ if [[ "$model_ready" != "true" ]]; then
   if [[ -n "$any_model" ]]; then
     found_name=$(basename "$any_model")
     env_set "$env_file" "GGUF_FILE" "$found_name"
+    env_set "$env_file" "LLM_MODEL" "$(_derive_llm_model "$found_name")"
     model_ready=true
     log "Found existing model: ${found_name} — updated GGUF_FILE"
   fi
@@ -131,6 +146,7 @@ if [[ "$model_ready" != "true" ]]; then
         dl_size=$(stat -c%s "${models_dir}/${bootstrap_name}" || echo 0)
         if [[ "$dl_size" -gt 50000000 ]]; then
           env_set "$env_file" "GGUF_FILE" "$bootstrap_name"
+          env_set "$env_file" "LLM_MODEL" "$(_derive_llm_model "$bootstrap_name")"
           model_ready=true
           log "Bootstrap model downloaded: ${bootstrap_name} ($(( dl_size / 1048576 )) MB)"
         else
