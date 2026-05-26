@@ -354,7 +354,7 @@ detect_nvml_mismatch() {
 # Strategy 3: Upgrade kernel module to match userspace libs (original approach)
 # Non-fatal: logs warnings on failure but does not halt.
 repair_nvml_mismatch() {
-  local host_probe_output kernel_version lib_version initial_status post_repair_status
+  local host_probe_output kernel_version="" lib_version="" initial_status post_repair_status
 
   log "Attempting to repair NVIDIA driver/library mismatch..."
 
