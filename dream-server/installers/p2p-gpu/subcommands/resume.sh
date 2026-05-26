@@ -23,10 +23,14 @@ cmd_resume() {
   ds_dir=$(find_dream_dir) || { err "DreamServer directory not found"; exit 1; }
 
   cd "$ds_dir"
-  local gpu_backend
-  gpu_backend=$(detect_gpu_backend)
+  detect_gpu
+  local gpu_backend="$GPU_BACKEND"
 
   apply_post_install_fixes "$ds_dir" "$gpu_backend"
+  if [[ "${GPU_COUNT:-0}" -ge "${MULTIGPU_MIN_GPUS:-2}" ]]; then
+    enumerate_gpus
+    run_gpu_assignment "$ds_dir" "${ds_dir}/.env"
+  fi
   start_services "$ds_dir"
   print_access_info "$ds_dir"
 

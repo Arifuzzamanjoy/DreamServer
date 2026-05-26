@@ -220,6 +220,12 @@ run_gpu_assignment() {
   local ds_dir="$1" env_file="$2"
   [[ "${GPU_COUNT:-0}" -lt 2 ]] && return 0
 
+  if [[ "${GPU_UUIDS+set}" != "set" ]]; then
+    enumerate_gpus
+  elif [[ "${#GPU_UUIDS[@]}" -eq 0 ]]; then
+    enumerate_gpus
+  fi
+
   local topo_file="/tmp/ds-gpu-topo-$$.json"
   generate_topology_json "$topo_file"
   [[ ! -f "$topo_file" ]] && { warn "Topology file not generated — skipping assignment"; return 0; }
@@ -266,25 +272,55 @@ run_gpu_assignment() {
   rm -f "$topo_file"
 }
 
+_map_llama_split_mode() {
+  case "${1:-}" in
+    ""|none|null) echo "none" ;;
+    tensor|hybrid) echo "row" ;;
+    pipeline) echo "layer" ;;
+    layer|row) echo "$1" ;;
+    *)
+      warn "Unknown split mode '${1}' from assign_gpus.py; defaulting to layer"
+      echo "layer"
+      ;;
+  esac
+}
+
+_ensure_numeric_main_gpu() {
+  local env_file="$1" split_mode="$2"
+  local main_gpu
+  main_gpu="$(env_get "$env_file" "LLAMA_ARG_MAIN_GPU")"
+  if [[ -z "$main_gpu" || ! "$main_gpu" =~ ^[0-9]+$ ]]; then
+    if [[ -n "$main_gpu" ]]; then
+      warn "Invalid LLAMA_ARG_MAIN_GPU='${main_gpu}' — resetting to 0"
+    fi
+    if [[ "$split_mode" != "none" ]]; then
+      env_set "$env_file" "LLAMA_ARG_MAIN_GPU" "0"
+    fi
+  fi
+}
+
 _write_assignment_from_json() {
   local json="$1" env_file="$2"
 
   local llama_uuids split_mode tensor_split
   llama_uuids=$(echo "$json" | jq -r '.gpu_assignment.services.llama_server.gpus // [] | join(",")') || llama_uuids=""
   split_mode=$(echo "$json" | jq -r '.gpu_assignment.services.llama_server.parallelism.mode // "none"') || split_mode="none"
+  split_mode=$(_map_llama_split_mode "$split_mode")
   tensor_split=$(echo "$json" | jq -r '
     .gpu_assignment.services.llama_server as $svc |
     if $svc.parallelism.tensor_split then ($svc.parallelism.tensor_split | map(tostring) | join(","))
     else "" end') || tensor_split=""
 
   [[ -n "$llama_uuids" ]] && env_set "$env_file" "LLAMA_SERVER_GPU_UUIDS" "$llama_uuids"
-  [[ "$split_mode" != "none" && "$split_mode" != "null" ]] && env_set "$env_file" "LLAMA_ARG_SPLIT_MODE" "$split_mode"
+  env_set "$env_file" "LLAMA_ARG_SPLIT_MODE" "$split_mode"
   [[ -n "$tensor_split" ]] && env_set "$env_file" "LLAMA_ARG_TENSOR_SPLIT" "$tensor_split"
 
-  # Enable peer-to-peer GPU transfers when NVLink is present (avoids host RAM round-trip)
   local main_gpu
-  main_gpu=$(echo "$json" | jq -r '.gpu_assignment.services.llama_server.parallelism.main_gpu // empty') || main_gpu=""
-  [[ -n "$main_gpu" && "$main_gpu" != "null" ]] && env_set "$env_file" "LLAMA_ARG_MAIN_GPU" "$main_gpu"
+  main_gpu=$(echo "$json" | jq -r '.gpu_assignment.services.llama_server.parallelism.main_gpu_index // empty') || main_gpu=""
+  if [[ "$main_gpu" =~ ^[0-9]+$ ]]; then
+    env_set "$env_file" "LLAMA_ARG_MAIN_GPU" "$main_gpu"
+  fi
+  _ensure_numeric_main_gpu "$env_file" "$split_mode"
 
   # Per-service GPU UUIDs
   local svc uuid
@@ -324,6 +360,7 @@ _write_builtin_assignment() {
   env_set "$env_file" "LLAMA_ARG_SPLIT_MODE" "layer"
   [[ -n "$split" ]] && env_set "$env_file" "LLAMA_ARG_TENSOR_SPLIT" "$split"
   env_set "$env_file" "GPU_COUNT" "${GPU_COUNT}"
+  _ensure_numeric_main_gpu "$env_file" "layer"
 
   log "Built-in assignment: all ${GPU_COUNT} GPUs → llama, mode=layer, split=${split}"
 }
