@@ -22,7 +22,7 @@ cmd_resume() {
   local ds_dir
   ds_dir=$(find_dream_dir) || { err "DreamServer directory not found"; exit 1; }
 
-  cd "$ds_dir"
+  cd "$ds_dir" || exit 1
   detect_gpu
   local gpu_backend="$GPU_BACKEND"
 

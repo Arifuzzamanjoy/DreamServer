@@ -157,7 +157,7 @@ _handle_oom() {
   local tiny_name="Qwen3-0.6B-Q4_K_M.gguf"
   if [[ ! -f "${models_dir}/${tiny_name}" ]]; then
     aria2c -x 8 -s 8 -d "$models_dir" -o "$tiny_name" "$tiny_url" 2>&1 || \
-      curl -sL -o "${models_dir}/${tiny_name}" "$tiny_url"
+      curl -sfL -o "${models_dir}/${tiny_name}" "$tiny_url"
   fi
   env_set "$env_file" "GGUF_FILE" "$tiny_name"
   # [NON-FATAL: llama] Individual service failure does not block others.

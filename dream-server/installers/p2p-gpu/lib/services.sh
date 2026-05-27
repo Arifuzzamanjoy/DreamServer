@@ -603,7 +603,7 @@ start_services() {
   local compose_cmd
   compose_cmd=$(get_compose_cmd)
 
-  cd "$ds_dir"
+  cd "$ds_dir" || exit 1
   [[ "$gpu_backend" == "auto" ]] && gpu_backend=$(detect_gpu_backend)
   if [[ -z "${GPU_BACKEND:-}" ]]; then
     GPU_BACKEND="$gpu_backend"

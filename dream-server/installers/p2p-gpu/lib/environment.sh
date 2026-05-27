@@ -92,7 +92,7 @@ ensure_dream_cli_command() {
 #!/usr/bin/env bash
 set -euo pipefail
 export DREAM_HOME="\${DREAM_HOME:-${ds_dir}}"
-cd "${ds_dir}"
+cd "${ds_dir}" || exit 1
 exec "${cli_path}" "\$@"
 EOF
   # [NON-FATAL: convenience] Missing wrapper only affects global dream alias.

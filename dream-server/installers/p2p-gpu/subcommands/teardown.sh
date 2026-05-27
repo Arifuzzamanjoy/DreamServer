@@ -19,7 +19,7 @@ cmd_teardown() {
   local ds_dir
   ds_dir=$(find_dream_dir) || { err "DreamServer directory not found"; exit 1; }
 
-  cd "$ds_dir"
+  cd "$ds_dir" || exit 1
 
   if [[ -f "docker-compose.base.yml" ]]; then
     local compose_cmd

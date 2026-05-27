@@ -11,9 +11,17 @@
 #           acquire_lock()
 #
 # Modder notes:
-#   Log writes use append-or-silent to avoid infinite recursion if the
-#   logfile itself is unwritable. This is the ONE exception to the
-#   "never || :" rule — logging infrastructure cannot warn about itself.
+#   Log writes use append-or-silent ( || : ) to avoid infinite recursion
+#
+#   if the logfile itself is unwritable. This is the ONE intentional
+#
+#   deviation from CLAUDE.md §4's "never || true" rule: the logging
+#
+#   functions ARE the warn() path, so they cannot call warn() on their
+#
+#   own failure without recursing. The 4 uses below are the only || :
+#
+#   in the entire toolkit.
 #
 # SPDX-License-Identifier: Apache-2.0
 # ============================================================================
