@@ -521,8 +521,12 @@ _compose_list_services() {
 
 _extract_missing_image_services() {
   local compose_err="$1"
-  local matched_lines
-  matched_lines=$(tr -d '\r' < "$compose_err" | grep -Ei 'Error manifest for|pull access denied for' || true)
+  local matched_lines status=0
+  matched_lines=$(tr -d '\r' < "$compose_err" | grep -Ei 'Error manifest for|pull access denied for') || status=$?
+  # grep exit: 0 = matched, 1 = no match (expected), >1 = real error
+  if (( status > 1 )); then
+    warn "grep failed scanning compose stderr for missing-image errors (status ${status})"
+  fi
   [[ -z "$matched_lines" ]] && return 0
 
   local service
@@ -646,7 +650,7 @@ _compose_up_with_cpu_heal() {
 
       if [[ "${#filtered_services[@]}" -gt 0 ]]; then
         if _compose_up_with_flags "$ds_dir" "$compose_cmd" "$compose_flags" "$compose_err" "--no-deps" "${filtered_services[@]}"; then
-          warn "Skipped services due to missing images: ${missing_list}"
+          warn "PARTIAL BRING-UP: started ${#filtered_services[@]} services, skipped (missing images): ${missing_list}"
           rm -f "$compose_err"
           return 0
         fi
