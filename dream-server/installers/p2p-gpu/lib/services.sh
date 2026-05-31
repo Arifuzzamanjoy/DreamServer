@@ -508,6 +508,61 @@ _compose_ansi_flag() {
   esac
 }
 
+_compose_list_services() {
+  local ds_dir="$1" compose_cmd="$2" compose_flags="$3"
+  local ansi_flag cmd
+  ansi_flag=$(_compose_ansi_flag "$compose_cmd")
+  cmd="${compose_cmd}"
+  [[ -n "$ansi_flag" ]] && cmd="${cmd} ${ansi_flag}"
+  cmd="${cmd} ${compose_flags} config --services"
+
+  su - "$DREAM_USER" -c "cd ${ds_dir} && ${cmd}" 2>>"$LOGFILE"
+}
+
+_extract_missing_image_services() {
+  local compose_err="$1"
+  local matched_lines status=0
+  matched_lines=$(tr -d '\r' < "$compose_err" | grep -Ei 'Error manifest for|pull access denied for') || status=$?
+  # grep exit: 0 = matched, 1 = no match (expected), >1 = real error
+  if (( status > 1 )); then
+    warn "grep failed scanning compose stderr for missing-image errors (status ${status})"
+  fi
+  [[ -z "$matched_lines" ]] && return 0
+
+  local service
+  while IFS= read -r line; do
+    service=""
+    local cleaned="${line//\'/}"
+    cleaned="${cleaned//\"/}"
+    if [[ "$cleaned" =~ ^[[:space:]]*([a-zA-Z0-9._-]+)[[:space:]]+(Error[[:space:]]+manifest[[:space:]]+for|pull[[:space:]]+access[[:space:]]+denied[[:space:]]+for) ]]; then
+      service="${BASH_REMATCH[1]}"
+    elif [[ "$cleaned" =~ [Ss]ervice[[:space:]]*([a-zA-Z0-9._-]+) ]]; then
+      service="${BASH_REMATCH[1]}"
+    elif [[ "$cleaned" =~ ^([a-zA-Z0-9._-]+)[[:space:]]*[\|:] ]]; then
+      service="${BASH_REMATCH[1]}"
+    fi
+    [[ -n "$service" ]] && echo "$service"
+  done <<< "$matched_lines" | sort -u
+}
+
+_compose_up_with_flags() {
+  local ds_dir="$1" compose_cmd="$2" compose_flags="$3" compose_err="$4" up_flags="$5"
+  shift 5
+  local ansi_flag cmd service_args
+  ansi_flag=$(_compose_ansi_flag "$compose_cmd")
+  cmd="${compose_cmd}"
+  [[ -n "$ansi_flag" ]] && cmd="${cmd} ${ansi_flag}"
+  cmd="${cmd} ${compose_flags} up -d"
+  [[ -n "$up_flags" ]] && cmd="${cmd} ${up_flags}"
+  if [[ "$#" -gt 0 ]]; then
+    printf -v service_args ' %q' "$@"
+    cmd="${cmd}${service_args}"
+  fi
+
+  su - "$DREAM_USER" -c "cd ${ds_dir} && ${cmd}" 2>&1 \
+    | tee -a "$LOGFILE" | tee "$compose_err"
+}
+
 _apply_host_cpu_caps() {
   local ds_dir="$1" env_file="$2" daemon_ceiling="${3:-}" compose_flags="${4:-}"
   local nproc_count docker_ncpu compose_ceiling max_cpu
@@ -568,6 +623,38 @@ _compose_up_with_cpu_heal() {
     if _compose_up "$ds_dir" "$compose_cmd" "$compose_flags" "$compose_err" "$@"; then
       rm -f "$compose_err"
       return 0
+    fi
+  fi
+
+  local missing_services
+  missing_services=$(_extract_missing_image_services "$compose_err")
+  if [[ -n "$missing_services" ]]; then
+    local missing_list
+    missing_list="${missing_services//$'\n'/, }"
+    warn "Compose failed due to missing images for services: ${missing_list}"
+    local service_output
+    if ! service_output=$(_compose_list_services "$ds_dir" "$compose_cmd" "$compose_flags"); then
+      warn "Failed to list compose services after missing-image error (non-fatal)"
+    else
+      local -A missing_map=()
+      local -a filtered_services=()
+      local service
+      while IFS= read -r service; do
+        [[ -n "$service" ]] && missing_map["$service"]=1
+      done <<< "$missing_services"
+      while IFS= read -r service; do
+        [[ -z "$service" ]] && continue
+        [[ -n "${missing_map[$service]:-}" ]] && continue
+        filtered_services+=("$service")
+      done <<< "$service_output"
+
+      if [[ "${#filtered_services[@]}" -gt 0 ]]; then
+        if _compose_up_with_flags "$ds_dir" "$compose_cmd" "$compose_flags" "$compose_err" "--no-deps" "${filtered_services[@]}"; then
+          warn "PARTIAL BRING-UP: started ${#filtered_services[@]} services, skipped (missing images): ${missing_list}"
+          rm -f "$compose_err"
+          return 0
+        fi
+      fi
     fi
   fi
 
