@@ -530,7 +530,9 @@ _extract_missing_image_services() {
     service=""
     local cleaned="${line//\'/}"
     cleaned="${cleaned//\"/}"
-    if [[ "$cleaned" =~ [Ss]ervice[[:space:]]*([a-zA-Z0-9._-]+) ]]; then
+    if [[ "$cleaned" =~ ^[[:space:]]*([a-zA-Z0-9._-]+)[[:space:]]+(Error[[:space:]]+manifest[[:space:]]+for|pull[[:space:]]+access[[:space:]]+denied[[:space:]]+for) ]]; then
+      service="${BASH_REMATCH[1]}"
+    elif [[ "$cleaned" =~ [Ss]ervice[[:space:]]*([a-zA-Z0-9._-]+) ]]; then
       service="${BASH_REMATCH[1]}"
     elif [[ "$cleaned" =~ ^([a-zA-Z0-9._-]+)[[:space:]]*[\|:] ]]; then
       service="${BASH_REMATCH[1]}"
