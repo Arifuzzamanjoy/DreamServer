@@ -99,7 +99,7 @@ _check_existing_install() {
   existing_dir=$(find_dream_dir 2>&1 || echo "")
   if [[ -n "$existing_dir" && -f "${existing_dir}/.env" ]]; then
     local running_count
-    running_count=$(docker ps --format '{{.Names}}' 2>&1 | grep -c '^dream-' || echo 0)
+    running_count=$(docker ps --format '{{.Names}}' 2>&1 | awk '/^dream-/ {count++} END {print count + 0}')
     if [[ "$running_count" -gt 0 ]]; then
       echo ""
       echo -e "${YELLOW}${BOLD}  DreamServer is already installed (${running_count} services running).${NC}"
