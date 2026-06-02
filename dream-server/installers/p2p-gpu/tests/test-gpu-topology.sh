@@ -2,6 +2,11 @@
 # Regression: multi-GPU topology fallback uses safe nvidia-smi probes + correct split mode.
 set -euo pipefail
 
+if ! command -v jq &>/dev/null; then
+  echo "jq is required for the topology regression test" >&2
+  exit 1
+fi
+
 P2P_GPU_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STUB_DIR="$(mktemp -d -t p2p-gpu-stub.XXXXXX)"
 trap 'rm -rf "$STUB_DIR"' EXIT

@@ -31,6 +31,11 @@ jobs:
           fi
           echo "$shfiles" | xargs bash -n
 
+      - name: Install jq for topology regression
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
       - name: NVML mismatch regression
         run: |
           # Live Vast.ai + GPU validation is performed manually outside CI.
@@ -38,3 +43,6 @@ jobs:
 
       - name: TLS remediation regression
         run: bash dream-server/installers/p2p-gpu/tests/test-tls-remediation.sh
+
+      - name: GPU topology regression
+        run: bash dream-server/installers/p2p-gpu/tests/test-gpu-topology.sh
