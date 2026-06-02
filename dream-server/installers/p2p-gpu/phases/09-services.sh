@@ -47,7 +47,7 @@ _verify_model_file() {
   fi
 
   warn "No .gguf model files found - llama-server will be unhealthy"
-  warn "Download a model: wget -P ${models_dir} https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
+  warn "Download the small bootstrap model: wget -P ${models_dir} https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
 }
 
 # Verify that the model endpoint exposes at least one selectable model for Open WebUI.
@@ -82,6 +82,8 @@ _verify_model_file "$DS_DIR"
 if [[ "${GPU_COUNT:-0}" -ge "${MULTIGPU_MIN_GPUS:-2}" ]]; then
   run_gpu_assignment "$DS_DIR" "${DS_DIR}/.env"
 fi
+
+_gate_phase09_tls_trust
 
 start_services "$DS_DIR"
 

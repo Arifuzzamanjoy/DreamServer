@@ -192,6 +192,7 @@ get_compose_cpu_ceiling() {
   echo "$ceiling"
 }
 
+# shellcheck disable=SC2120
 # Compute a safe cpus: cap value with one-core headroom.
 # Optional arg 1: hard ceiling discovered from daemon error output.
 compute_safe_cpu_cap() {
@@ -233,6 +234,195 @@ wait_for_http() {
     elapsed=$((elapsed + interval))
   done
   return 1
+}
+
+# Split a PEM bundle into one cert per file.
+_split_pem_bundle() {
+  local bundle_file="$1" output_dir="$2" prefix="${3:-dream-proxy}"
+  local cert_index=0 target_file="" line=""
+
+  mkdir -p "$output_dir"
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" == '-----BEGIN CERTIFICATE-----' ]]; then
+      cert_index=$((cert_index + 1))
+      target_file="${output_dir}/${prefix}-$(printf '%02d' "$cert_index").crt"
+    fi
+
+    if [[ $cert_index -gt 0 && -n "$target_file" ]]; then
+      printf '%s\n' "$line" >> "$target_file"
+    fi
+
+    if [[ "$line" == '-----END CERTIFICATE-----' ]]; then
+      target_file=""
+    fi
+  done < "$bundle_file"
+
+  [[ $cert_index -gt 0 ]]
+}
+
+# Remediate TLS trust for intercepting proxies by installing the proxy CA.
+remediate_tls_trust() {
+  local ca_store_dir="${DREAM_PROXY_CA_STORE_DIR:-/usr/local/share/ca-certificates}"
+  local docker_certs_dir="${DREAM_DOCKER_CERTS_DIR:-/etc/docker/certs.d}"
+  local staging_root staging_dir chain_file source_file cert_name cert_target stale_cert
+  local -a source_files=() cert_files=() installed_targets=()
+
+  TLS_OK="false"
+  staging_root=$(mktemp -d -t dream-proxy-ca.XXXXXX)
+  staging_dir="${staging_root}/split"
+  chain_file="${staging_root}/chain.pem"
+  mkdir -p "$staging_dir"
+
+  if ! dpkg -s ca-certificates &>/dev/null; then
+    log "ca-certificates missing — installing trust bundle support"
+    if type -t _wait_for_dpkg_lock >/dev/null 2>&1; then
+      # [NON-FATAL: dpkg] apt will still enforce DPkg::Lock::Timeout.
+      _wait_for_dpkg_lock 60 || warn "dpkg lock not released in time — DPkg::Lock::Timeout will handle"
+    fi
+    apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" update -qq 2>>"$LOGFILE" \
+      && apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" install -y -qq ca-certificates 2>>"$LOGFILE"
+  fi
+
+  if [[ -n "${DREAM_PROXY_CA:-}" && -f "${DREAM_PROXY_CA}" ]]; then
+    source_files+=("${DREAM_PROXY_CA}")
+  elif [[ -n "${SSL_CERT_FILE:-}" && -f "${SSL_CERT_FILE}" ]]; then
+    source_files+=("${SSL_CERT_FILE}")
+  elif [[ -d "$ca_store_dir" ]]; then
+    while IFS= read -r source_file; do
+      [[ -n "$source_file" ]] && source_files+=("$source_file")
+    done < <(find "$ca_store_dir" -maxdepth 1 -type f -name '*.crt' | sort)
+  fi
+
+  if [[ ${#source_files[@]} -gt 0 ]]; then
+    for source_file in "${source_files[@]}"; do
+      awk '
+        /-----BEGIN CERTIFICATE-----/ {in_cert=1}
+        in_cert { print }
+        /-----END CERTIFICATE-----/ {
+          if (in_cert) {
+            print
+            in_cert=0
+          }
+        }
+      ' "$source_file" >> "$chain_file"
+    done
+  else
+    log "No preexisting proxy CA found — extracting the presented certificate chain"
+    if ! timeout 15 openssl s_client -showcerts -servername registry-1.docker.io \
+      -connect registry-1.docker.io:443 </dev/null 2>>"$LOGFILE" \
+      | awk '
+          /-----BEGIN CERTIFICATE-----/ {in_cert=1}
+          in_cert { print }
+          /-----END CERTIFICATE-----/ {
+            if (in_cert) {
+              print
+              in_cert=0
+            }
+          }
+        ' > "$chain_file"; then
+      warn "Failed to extract the proxy certificate chain"
+      TLS_OK="false"
+      return 1
+    fi
+  fi
+
+  if [[ ! -s "$chain_file" ]]; then
+    warn "Unable to locate a proxy CA chain to trust"
+    TLS_OK="false"
+    return 1
+  fi
+
+  _split_pem_bundle "$chain_file" "$staging_dir" "dream-proxy"
+
+  while IFS= read -r source_file; do
+    [[ -n "$source_file" ]] && cert_files+=("$source_file")
+  done < <(find "$staging_dir" -type f -name 'dream-proxy-*.crt' | sort)
+
+  if [[ ${#cert_files[@]} -eq 0 ]]; then
+    warn "Proxy CA chain did not contain any certificates"
+    TLS_OK="false"
+    return 1
+  fi
+
+  install -d -m 0755 "$ca_store_dir"
+  for source_file in "${cert_files[@]}"; do
+    cert_name=$(basename "$source_file")
+    cert_target="${ca_store_dir}/${cert_name}"
+    installed_targets+=("$cert_target")
+
+    if [[ ! -f "$cert_target" ]] || ! cmp -s "$source_file" "$cert_target"; then
+      if [[ $EUID -eq 0 ]]; then
+        install -m 0644 -o root -g root "$source_file" "$cert_target"
+      else
+        install -m 0644 "$source_file" "$cert_target"
+      fi
+    fi
+  done
+
+  shopt -s nullglob
+  for stale_cert in "$ca_store_dir"/dream-proxy-*.crt; do
+    local keep=false
+    for cert_target in "${installed_targets[@]}"; do
+      if [[ "$stale_cert" == "$cert_target" ]]; then
+        keep=true
+        break
+      fi
+    done
+    if [[ "$keep" != true ]]; then
+      rm -f "$stale_cert"
+    fi
+  done
+  shopt -u nullglob
+
+  if ! update-ca-certificates --fresh 2>>"$LOGFILE"; then
+    warn "update-ca-certificates --fresh failed"
+    TLS_OK="false"
+    return 1
+  fi
+
+  install -d -m 0755 "${docker_certs_dir}/docker.io" "${docker_certs_dir}/ghcr.io"
+  cat "${installed_targets[@]}" > "${staging_root}/docker-ca.crt"
+  if [[ $EUID -eq 0 ]]; then
+    install -m 0644 -o root -g root "${staging_root}/docker-ca.crt" "${docker_certs_dir}/docker.io/ca.crt"
+    install -m 0644 -o root -g root "${staging_root}/docker-ca.crt" "${docker_certs_dir}/ghcr.io/ca.crt"
+  else
+    install -m 0644 "${staging_root}/docker-ca.crt" "${docker_certs_dir}/docker.io/ca.crt"
+    install -m 0644 "${staging_root}/docker-ca.crt" "${docker_certs_dir}/ghcr.io/ca.crt"
+  fi
+
+  # [NON-FATAL: docker] Docker may not be managed by systemctl on Vast.ai.
+  if ! systemctl restart docker 2>>"$LOGFILE"; then
+    service docker restart 2>>"$LOGFILE" || warn "docker restart failed (manual: systemctl restart docker || service docker restart)"
+  fi
+
+  if curl -fsI --max-time 10 https://registry-1.docker.io/v2/ > /dev/null 2>>"$LOGFILE" \
+    && timeout 45 docker pull hello-world:latest >/dev/null 2>>"$LOGFILE"; then
+    TLS_OK="true"
+    log "TLS trust remediation succeeded"
+    return 0
+  fi
+
+  TLS_OK="false"
+  warn "TLS trust still broken after remediation"
+  return 1
+}
+
+# Hard gate for phase 09 image pulls.
+_gate_phase09_tls_trust() {
+  if [[ "${TLS_OK:-true}" == "true" ]]; then
+    return 0
+  fi
+
+  err "TLS trust is still broken after remediation; aborting before image pulls"
+  err "Manual CA fix (copy your proxy root CA PEM, then rerun setup):"
+  err "  install -m 0644 proxy-root.crt /usr/local/share/ca-certificates/proxy-root.crt"
+  err "  update-ca-certificates --fresh"
+  err "  install -d /etc/docker/certs.d/docker.io /etc/docker/certs.d/ghcr.io"
+  err "  install -m 0644 /usr/local/share/ca-certificates/proxy-root.crt /etc/docker/certs.d/docker.io/ca.crt"
+  err "  install -m 0644 /usr/local/share/ca-certificates/proxy-root.crt /etc/docker/certs.d/ghcr.io/ca.crt"
+  err "  systemctl restart docker || service docker restart"
+  exit 1
 }
 
 # ── [FIX: gpu-dedup] Single source of truth for GPU detection ───────────────
@@ -313,6 +503,7 @@ _has_nvml_mismatch_signature() {
     "driver/library version mismatch|failed to initialize nvml|nvidia-container-cli: initialization error: nvml error"
 }
 
+# shellcheck disable=SC2120
 # ── [FIX: nvml-mismatch] NVIDIA driver/library version mismatch detection ────
 # Detects if host NVIDIA driver and container CUDA driver versions are misaligned.
 # Returns: 0 = matched, 1 = mismatched, 2 = couldn't detect
@@ -756,7 +947,8 @@ _apply_env_defaults() {
   # Helper: Replace CHANGEME or empty with generated secret/value
   _replace_changeme() {
     local key="$1" value="$2"
-    local current="$(env_get "$env_file" "$key")"
+    local current
+    current="$(env_get "$env_file" "$key")"
     if [[ -z "$current" || "$current" == "CHANGEME" ]]; then
       env_set "$env_file" "$key" "$value"
       log "Set ${key}"
@@ -860,9 +1052,8 @@ _cap_context_for_vram() {
     env_set "$env_file" "CTX_SIZE" "$safe_ctx"
 
     # Set KV cache quantization to maximize context within VRAM budget
-    local current_kv_k current_kv_v
+    local current_kv_k
     current_kv_k="$(env_get "$env_file" "LLAMA_ARG_CACHE_TYPE_K")"
-    current_kv_v="$(env_get "$env_file" "LLAMA_ARG_CACHE_TYPE_V")"
 
     if [[ "${current_kv_k:-f16}" == "f16" && "$kv_quant" != "f16" ]]; then
       env_set "$env_file" "LLAMA_ARG_CACHE_TYPE_K" "$kv_quant"

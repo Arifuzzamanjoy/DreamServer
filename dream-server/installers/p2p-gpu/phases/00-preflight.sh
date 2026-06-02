@@ -230,11 +230,14 @@ _verify_https_trust() {
 
   if [[ "$failed" == "true" ]]; then
     TLS_OK="false"
-    warn "System TLS trust is broken — model downloads and Docker pulls will fail"
-    warn "If behind a proxy, install the proxy root CA, then run:"
-    warn "  cp /path/to/proxy-root.crt /usr/local/share/ca-certificates/proxy-root.crt"
-    warn "  update-ca-certificates --fresh"
-    warn "  systemctl restart docker"
+    warn "System TLS trust is broken — attempting automatic proxy CA remediation"
+    if remediate_tls_trust; then
+      # shellcheck disable=SC2034
+      TLS_OK="true"
+      log "TLS trust restored during preflight"
+    else
+      warn "Automatic TLS remediation did not fully resolve trust — phase 09 will stop before image pulls"
+    fi
   fi
 }
 

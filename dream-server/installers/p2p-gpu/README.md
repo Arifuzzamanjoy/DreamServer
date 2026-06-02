@@ -4,13 +4,13 @@ Production-hardened deployment of the full DreamServer AI stack on rented GPU in
 
 **One command. All 17+ services. Any NVIDIA/AMD GPU or CPU-only instance.**
 
-Automatically handles 28 known P2P GPU environment issues: root user rejection, Docker socket permissions, CPU limit overflow, /tmp permissions, NVIDIA toolkit setup, multi-GPU support, SSH tunneling, package manager locks, and more. Includes built-in recovery commands, health checks, and model auto-swap capabilities.
+Automatically handles 29 known P2P GPU environment issues: root user rejection, Docker socket permissions, CPU limit overflow, /tmp permissions, NVIDIA toolkit setup, multi-GPU support, SSH tunneling, package manager locks, and more. Includes built-in recovery commands, health checks, and model auto-swap capabilities.
 
 ## What It Solves
 
 **The Problem:** Deploying DreamServer on rented GPU instances is fragile. Root-only environments, non-standard filesystem permissions, held package locks, missing GPU drivers, and provider-specific quirks cause silent failures during setup.
 
-**The Solution:** `setup.sh` is a battle-tested orchestrator that detects and fixes 28 known issues automatically. It handles permission escalation, creates a non-root `dream` user, manages Docker group access, installs missing NVIDIA/AMD toolkits, applies POSIX ACLs for multi-container file sharing, and starts all 17+ services with health checks. If setup partially completes, recovery commands bring the stack back online without reinstall.
+**The Solution:** `setup.sh` is a battle-tested orchestrator that detects and fixes 29 known issues automatically. It handles permission escalation, creates a non-root `dream` user, manages Docker group access, installs missing NVIDIA/AMD toolkits, applies POSIX ACLs for multi-container file sharing, and starts all 17+ services with health checks. If setup partially completes, recovery commands bring the stack back online without reinstall.
 
 ## Quick Start
 
@@ -49,7 +49,7 @@ On Windows, use the all-port tunnel from `--info` (it uses a safe local alias
 
 ## What It Does
 
-The setup script handles 28 known issues with P2P GPU environments:
+The setup script handles 29 known issues with P2P GPU environments:
 
 | # | Issue | Fix |
 |---|-------|-----|
@@ -81,6 +81,7 @@ The setup script handles 28 known issues with P2P GPU environments:
 | 26 | Installer timeout | 10min cap per phase |
 | 27 | AMD GPU support | ROCm detection + compose overlay |
 | 28 | CPU-only fallback | Works without any GPU |
+| 29 | TLS-intercepting proxy CA missing | Auto-installs proxy root CA and rechecks pulls |
 
 ## Architecture
 
