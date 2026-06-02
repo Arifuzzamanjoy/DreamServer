@@ -33,15 +33,30 @@ enumerate_gpus() {
   GPU_TOTAL_VRAM=0
 
   if [[ "${GPU_BACKEND:-}" == "nvidia" ]]; then
-    while IFS=', ' read -r uuid vram name; do
+    local query_out
+    query_out=$(nvidia-smi --query-gpu=gpu_uuid,memory.total,name \
+      --format=csv,noheader,nounits 2>>"$LOGFILE" || echo "")
+    if [[ -z "$query_out" ]]; then
+      warn "nvidia-smi GPU enumeration returned no data (non-fatal)"
+    fi
+    while IFS=',' read -r uuid vram name; do
+      uuid=$(echo "$uuid" | xargs)
+      vram=$(echo "$vram" | xargs)
+      name=$(echo "$name" | xargs)
       [[ -z "$uuid" ]] && continue
+      local vram_mb=""
+      if [[ "$vram" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        vram_mb="${vram%%.*}"
+      else
+        warn "Missing VRAM for GPU ${uuid} (non-fatal)"
+      fi
+      [[ -z "$name" ]] && name="NVIDIA GPU"
       GPU_UUIDS+=("$uuid")
-      GPU_VRAMS+=("${vram%%.*}")  # truncate decimals
+      GPU_VRAMS+=("$vram_mb")
       GPU_NAMES+=("$name")
-      GPU_TOTAL_VRAM=$(( GPU_TOTAL_VRAM + ${vram%%.*} ))
+      [[ -n "$vram_mb" ]] && GPU_TOTAL_VRAM=$(( GPU_TOTAL_VRAM + vram_mb ))
     # [NON-FATAL: probe] Topology is best-effort; fallback uses env values.
-    done < <(nvidia-smi --query-gpu=gpu_uuid,memory.total,name \
-      --format=csv,noheader,nounits 2>>"$LOGFILE" || warn "nvidia-smi GPU enumeration failed (non-fatal)")
+    done <<< "$query_out"
 
   elif [[ "${GPU_BACKEND:-}" == "amd" ]]; then
     local idx=0
@@ -107,9 +122,15 @@ _generate_builtin_topology() {
   local gpus_json="["
   for i in "${!GPU_UUIDS[@]}"; do
     local mem_gb
-    mem_gb=$(awk "BEGIN {printf \"%.1f\", ${GPU_VRAMS[$i]} / 1024}")
+    local vram_mb="${GPU_VRAMS[$i]:-0}"
+    if [[ ! "$vram_mb" =~ ^[0-9]+$ ]]; then
+      vram_mb=0
+    fi
+    mem_gb=$(awk "BEGIN {printf \"%.1f\", ${vram_mb} / 1024}")
+    local gpu_name="${GPU_NAMES[$i]:-}"
+    [[ -z "$gpu_name" ]] && gpu_name="GPU ${i}"
     [[ $i -gt 0 ]] && gpus_json+=","
-    gpus_json+="{\"index\":${i},\"uuid\":\"${GPU_UUIDS[$i]}\",\"name\":\"${GPU_NAMES[$i]}\",\"memory_gb\":${mem_gb}}"
+    gpus_json+="{\"index\":${i},\"uuid\":\"${GPU_UUIDS[$i]}\",\"name\":\"${gpu_name}\",\"memory_gb\":${mem_gb}}"
   done
   gpus_json+="]"
 
@@ -251,9 +272,9 @@ run_gpu_assignment() {
     _write_assignment_from_json "$result" "$env_file"
     log "GPU assignment via upstream assign_gpus.py"
   else
-    # Strategy 2: Built-in fallback — all GPUs to llama
-    _write_builtin_assignment "$env_file"
-    log "GPU assignment via built-in fallback (all GPUs → llama)"
+    # Strategy 2: Built-in fallback — topology-driven llama assignment
+    _write_builtin_assignment "$env_file" "$model_size_mb" "$topo_file"
+    log "GPU assignment via built-in fallback (topology-driven)"
   fi
 
   # Save topology for dashboard-api
@@ -264,18 +285,212 @@ run_gpu_assignment() {
   chmod 644 "${ds_dir}/config/gpu-topology.json" 2>>"$LOGFILE" || warn "failed to set mode on gpu-topology.json (non-fatal)"
 
   # Enable P2P transfers when NVLink detected (avoids host RAM round-trip)
+  local nvlink_present=false
   if [[ -f "$topo_file" ]] && jq -e '.links[] | select(.link_type | startswith("NV"))' "$topo_file" &>/dev/null; then
+    nvlink_present=true
     env_set "$env_file" "GGML_CUDA_P2P" "1"
     log "NVLink detected — enabled GGML_CUDA_P2P for direct GPU-to-GPU transfers"
+  else
+    env_unset "$env_file" "GGML_CUDA_P2P"
+  fi
+
+  # NCCL hints for >2 GPUs with NVLink islands (only when NCCL is available in the image)
+  if [[ "$nvlink_present" == "true" && "${GPU_BACKEND:-}" == "nvidia" && "${GPU_COUNT:-0}" -gt 2 ]]; then
+    env_set "$env_file" "NCCL_P2P_LEVEL" "NVL"
+    env_set "$env_file" "NCCL_P2P_DISABLE" "0"
+    log "NVLink islands detected — set NCCL_P2P_LEVEL=NVL for multi-GPU tensor reductions"
+  else
+    env_unset "$env_file" "NCCL_P2P_LEVEL"
+    env_unset "$env_file" "NCCL_P2P_DISABLE"
   fi
 
   rm -f "$topo_file"
 }
 
+_count_csv_items() {
+  local csv="$1" count=0
+  local -a parts=()
+  IFS=',' read -r -a parts <<< "$csv"
+  for part in "${parts[@]}"; do
+    part=$(echo "$part" | xargs)
+    [[ -n "$part" ]] && count=$((count + 1))
+  done
+  echo "$count"
+}
+
+_set_tensor_split_if_valid() {
+  local env_file="$1" split="$2" expected="$3" reason="$4"
+  if [[ -z "$split" ]]; then
+    env_unset "$env_file" "LLAMA_ARG_TENSOR_SPLIT"
+    return 0
+  fi
+  local count
+  count=$(_count_csv_items "$split")
+  if [[ "$count" -ne "$expected" ]]; then
+    warn "Skipping LLAMA_ARG_TENSOR_SPLIT (${reason}): expected ${expected} entries, got ${count}"
+    env_unset "$env_file" "LLAMA_ARG_TENSOR_SPLIT"
+    return 0
+  fi
+  env_set "$env_file" "LLAMA_ARG_TENSOR_SPLIT" "$split"
+}
+
+_get_nvlink_islands() {
+  local topo_file="$1"
+  local gpu_count
+  gpu_count=$(jq -r '.gpu_count // (.gpus | length) // 0' "$topo_file" 2>>"$LOGFILE" || echo 0)
+  [[ "$gpu_count" -lt 2 ]] && return 0
+
+  local -a parent=()
+  local i
+  for ((i=0; i<gpu_count; i++)); do
+    parent[$i]=$i
+  done
+
+  local pairs
+  pairs=$(jq -r '.links[] | select(.link_type | startswith("NV")) | "\(.gpu_a) \(.gpu_b)"' \
+    "$topo_file" 2>>"$LOGFILE" || echo "")
+
+  _nvlink_find_root() {
+    local node="$1"
+    local root="${parent[$node]}"
+    while [[ "$root" != "$node" ]]; do
+      node="$root"
+      root="${parent[$node]}"
+    done
+    echo "$root"
+  }
+
+  local pair_a pair_b root_a root_b
+  while read -r pair_a pair_b; do
+    [[ -z "$pair_a" || -z "$pair_b" ]] && continue
+    root_a=$(_nvlink_find_root "$pair_a")
+    root_b=$(_nvlink_find_root "$pair_b")
+    [[ "$root_a" != "$root_b" ]] && parent[$root_b]="$root_a"
+  done <<< "$pairs"
+
+  declare -A islands=()
+  local root
+  for ((i=0; i<gpu_count; i++)); do
+    root=$(_nvlink_find_root "$i")
+    islands["$root"]="${islands[$root]:-} $i"
+  done
+
+  for root in "${!islands[@]}"; do
+    local list="${islands[$root]}"
+    local count
+    count=$(echo "$list" | awk '{print NF}')
+    if [[ "$count" -gt 1 ]]; then
+      echo "${list# }"
+    fi
+  done
+}
+
+_island_nvlink_rank() {
+  local topo_file="$1" island="$2"
+  declare -A in_island=()
+  local idx
+  for idx in $island; do
+    in_island["$idx"]=1
+  done
+
+  local rank_sum=0
+  local links
+  links=$(jq -r '.links[] | select(.link_type | startswith("NV")) | "\(.gpu_a) \(.gpu_b) \(.rank)"' \
+    "$topo_file" 2>>"$LOGFILE" || echo "")
+  local a b rank
+  while read -r a b rank; do
+    [[ -z "$a" || -z "$b" || -z "$rank" ]] && continue
+    if [[ -n "${in_island[$a]:-}" && -n "${in_island[$b]:-}" ]]; then
+      [[ "$rank" =~ ^[0-9]+$ ]] && rank_sum=$((rank_sum + rank))
+    fi
+  done <<< "$links"
+  echo "$rank_sum"
+}
+
+_select_builtin_llama_gpus() {
+  local topo_file="$1" model_size_mb="$2"
+  BUILTIN_LLAMA_SPLIT_MODE="layer"
+  BUILTIN_LLAMA_INDICES=()
+
+  local gpu_count="${#GPU_UUIDS[@]}"
+  local -a all_indices=()
+  local i
+  for ((i=0; i<gpu_count; i++)); do
+    all_indices+=("$i")
+  done
+  BUILTIN_LLAMA_INDICES=("${all_indices[@]}")
+
+  [[ "$gpu_count" -lt 2 ]] && { BUILTIN_LLAMA_SPLIT_MODE="none"; return 0; }
+  [[ "${GPU_BACKEND:-}" != "nvidia" ]] && return 0
+
+  local -a islands=()
+  mapfile -t islands < <(_get_nvlink_islands "$topo_file")
+  [[ "${#islands[@]}" -eq 0 ]] && return 0
+
+  local best_island="" best_count=0 best_vram=0 best_rank=0 best_homogeneous="false"
+  local island
+  for island in "${islands[@]}"; do
+    local -a idxs=()
+    read -r -a idxs <<< "$island"
+    local count="${#idxs[@]}"
+    local total_vram=0
+    local island_rank=0
+    local homogeneous="true"
+    local ref_name="" ref_vram=""
+    local idx
+    for idx in "${idxs[@]}"; do
+      local name="${GPU_NAMES[$idx]:-unknown}"
+      local vram="${GPU_VRAMS[$idx]:-unknown}"
+      [[ -z "$ref_name" ]] && ref_name="$name"
+      [[ -z "$ref_vram" ]] && ref_vram="$vram"
+      [[ "$name" != "$ref_name" ]] && homogeneous="false"
+      [[ "$vram" != "$ref_vram" ]] && homogeneous="false"
+      [[ "$vram" =~ ^[0-9]+$ ]] && total_vram=$((total_vram + vram))
+    done
+    island_rank=$(_island_nvlink_rank "$topo_file" "$island")
+
+    if [[ "$homogeneous" == "true" ]]; then
+      if [[ "$best_homogeneous" != "true" || "$count" -gt "$best_count" \
+        || ( "$count" -eq "$best_count" && "$island_rank" -gt "$best_rank" ) \
+        || ( "$count" -eq "$best_count" && "$island_rank" -eq "$best_rank" && "$total_vram" -gt "$best_vram" ) ]]; then
+        best_island="$island"
+        best_count="$count"
+        best_vram="$total_vram"
+        best_rank="$island_rank"
+        best_homogeneous="true"
+      fi
+    elif [[ "$best_homogeneous" != "true" ]]; then
+      if [[ "$count" -gt "$best_count" || ( "$count" -eq "$best_count" && "$island_rank" -gt "$best_rank" ) \
+        || ( "$count" -eq "$best_count" && "$island_rank" -eq "$best_rank" && "$total_vram" -gt "$best_vram" ) ]]; then
+        best_island="$island"
+        best_count="$count"
+        best_vram="$total_vram"
+        best_rank="$island_rank"
+      fi
+    fi
+  done
+
+  if [[ -z "$best_island" ]]; then
+    BUILTIN_LLAMA_SPLIT_MODE="layer"
+    BUILTIN_LLAMA_INDICES=("${all_indices[@]}")
+    return 0
+  fi
+
+  if [[ "$model_size_mb" =~ ^[0-9]+$ && "$best_vram" -gt 0 && "$best_vram" -lt "$model_size_mb" ]]; then
+    BUILTIN_LLAMA_SPLIT_MODE="layer"
+    BUILTIN_LLAMA_INDICES=("${all_indices[@]}")
+    return 0
+  fi
+
+  read -r -a BUILTIN_LLAMA_INDICES <<< "$best_island"
+  BUILTIN_LLAMA_SPLIT_MODE="tensor"
+}
+
 _map_llama_split_mode() {
   case "${1:-}" in
     ""|none|null) echo "none" ;;
-    tensor|hybrid) echo "row" ;;
+    # PR #19378: split-mode tensor is backend-agnostic; row is deprecated legacy.
+    tensor|hybrid) echo "tensor" ;;
     pipeline) echo "layer" ;;
     layer|row) echo "$1" ;;
     *)
@@ -313,7 +528,13 @@ _write_assignment_from_json() {
 
   [[ -n "$llama_uuids" ]] && env_set "$env_file" "LLAMA_SERVER_GPU_UUIDS" "$llama_uuids"
   env_set "$env_file" "LLAMA_ARG_SPLIT_MODE" "$split_mode"
-  [[ -n "$tensor_split" ]] && env_set "$env_file" "LLAMA_ARG_TENSOR_SPLIT" "$tensor_split"
+  local llama_uuid_count
+  llama_uuid_count=$(_count_csv_items "$llama_uuids")
+  if [[ "$llama_uuid_count" -gt 0 ]]; then
+    _set_tensor_split_if_valid "$env_file" "$tensor_split" "$llama_uuid_count" "assign_gpus.py"
+  else
+    env_unset "$env_file" "LLAMA_ARG_TENSOR_SPLIT"
+  fi
 
   local main_gpu
   main_gpu=$(echo "$json" | jq -r '.gpu_assignment.services.llama_server.parallelism.main_gpu_index // empty') || main_gpu=""
@@ -340,27 +561,47 @@ _write_assignment_from_json() {
 }
 
 _write_builtin_assignment() {
-  local env_file="$1"
+  local env_file="$1" model_size_mb="$2" topo_file="$3"
 
-  # All GPUs → llama-server with pipeline parallelism
+  _select_builtin_llama_gpus "$topo_file" "$model_size_mb"
+  local split_mode="${BUILTIN_LLAMA_SPLIT_MODE:-layer}"
+  local -a selected_indices=("${BUILTIN_LLAMA_INDICES[@]}")
+  if [[ "${#selected_indices[@]}" -gt 0 ]]; then
+    mapfile -t selected_indices < <(printf '%s\n' "${selected_indices[@]}" | sort -n)
+  fi
+
+  # Selected GPUs → llama-server with topology-driven split mode
   local all_uuids=""
-  for uuid in "${GPU_UUIDS[@]}"; do
+  local split=""
+  local missing_vram=false
+  local idx
+  for idx in "${selected_indices[@]}"; do
+    local uuid="${GPU_UUIDS[$idx]:-}"
+    [[ -z "$uuid" ]] && continue
     [[ -n "$all_uuids" ]] && all_uuids+=","
     all_uuids+="$uuid"
-  done
 
-  # VRAM-proportional tensor_split
-  local split=""
-  for vram in "${GPU_VRAMS[@]}"; do
-    [[ -n "$split" ]] && split+=","
-    split+="$vram"
+    local vram="${GPU_VRAMS[$idx]:-}"
+    if [[ "$vram" =~ ^[0-9]+$ ]]; then
+      [[ -n "$split" ]] && split+=","
+      split+="$vram"
+    else
+      missing_vram=true
+    fi
   done
 
   [[ -n "$all_uuids" ]] && env_set "$env_file" "LLAMA_SERVER_GPU_UUIDS" "$all_uuids"
-  env_set "$env_file" "LLAMA_ARG_SPLIT_MODE" "layer"
-  [[ -n "$split" ]] && env_set "$env_file" "LLAMA_ARG_TENSOR_SPLIT" "$split"
+  env_set "$env_file" "LLAMA_ARG_SPLIT_MODE" "$split_mode"
+  if [[ "$missing_vram" == "true" ]]; then
+    split=""
+  fi
+  if [[ "${#selected_indices[@]}" -gt 0 ]]; then
+    _set_tensor_split_if_valid "$env_file" "$split" "${#selected_indices[@]}" "builtin fallback"
+  else
+    env_unset "$env_file" "LLAMA_ARG_TENSOR_SPLIT"
+  fi
   env_set "$env_file" "GPU_COUNT" "${GPU_COUNT}"
-  _ensure_numeric_main_gpu "$env_file" "layer"
+  _ensure_numeric_main_gpu "$env_file" "$split_mode"
 
-  log "Built-in assignment: all ${GPU_COUNT} GPUs → llama, mode=layer, split=${split}"
+  log "Built-in assignment: ${#selected_indices[@]} GPUs → llama, mode=${split_mode}"
 }

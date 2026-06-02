@@ -26,7 +26,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # ============================================================================
 
-set -euo pipefail
+set -eEuo pipefail
 
 _ts() { date '+%Y-%m-%d %H:%M:%S'; }
 
@@ -52,10 +52,20 @@ step() {
 
 # ── Cleanup trap ────────────────────────────────────────────────────────────
 setup_cleanup_trap() {
+  local last_err_cmd="" last_err_line="" last_err_source=""
+  _vastai_record_error() {
+    last_err_cmd="${BASH_COMMAND:-}"
+    last_err_line="${BASH_LINENO[0]:-unknown}"
+    last_err_source="${BASH_SOURCE[1]:-${BASH_SOURCE[0]:-unknown}}"
+  }
   _vastai_cleanup() {
     local exit_code=$?
     if [[ $exit_code -ne 0 ]]; then
-      err "Script failed at line ${BASH_LINENO[0]:-unknown} (exit code: ${exit_code})"
+      if [[ -n "$last_err_cmd" ]]; then
+        err "Script failed at ${last_err_source}:${last_err_line} while running: ${last_err_cmd} (exit code: ${exit_code})"
+      else
+        err "Script failed at line ${BASH_LINENO[0]:-unknown} (exit code: ${exit_code})"
+      fi
       err "Full log: ${LOGFILE}"
       err "Last 10 lines:"
       tail -10 "$LOGFILE" 2>&1 | sed 's/^/  /' || warn "could not read log tail"
@@ -69,6 +79,7 @@ setup_cleanup_trap() {
     # Release flock (fd 9 auto-closes on exit)
     exit "$exit_code"
   }
+  trap _vastai_record_error ERR
   trap _vastai_cleanup EXIT
   trap 'err "Interrupted by signal"; exit 130' INT TERM HUP
 }

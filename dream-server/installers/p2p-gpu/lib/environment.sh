@@ -51,6 +51,15 @@ env_get() {
     | sed 's/[[:space:]]#.*$//' | tr -d '"' | tr -d "'" || echo ""
 }
 
+# Unset a key from .env (idempotent, preserves other keys)
+env_unset() {
+  local file="$1" key="$2"
+  [[ ! -f "$file" ]] && return 0
+  if grep -q "^${key}=" "$file"; then
+    sed -i "/^${key}=/d" "$file"
+  fi
+}
+
 # Check if a TCP port is in use
 port_in_use() {
   local port="$1"
@@ -238,23 +247,42 @@ detect_gpu() {
 
   if command -v nvidia-smi &>/dev/null && nvidia-smi --query-gpu=name --format=csv,noheader &>/dev/null 2>&1; then
     GPU_BACKEND="nvidia"
-    GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>>"$LOGFILE" | head -1 | xargs)
-    GPU_VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>>"$LOGFILE" | head -1 | xargs)
-    GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>>"$LOGFILE" | wc -l)
+    local nvidia_names nvidia_mem
+    nvidia_names=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>>"$LOGFILE" || echo "")
+    nvidia_mem=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>>"$LOGFILE" || echo "")
+    GPU_NAME=$(printf '%s\n' "$nvidia_names" | awk 'NF {print; exit}' | xargs)
+    GPU_NAME="${GPU_NAME:-NVIDIA GPU}"
+    GPU_VRAM=$(printf '%s\n' "$nvidia_mem" | awk 'NF {print; exit}' | xargs)
+    if [[ ! "$GPU_VRAM" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+      GPU_VRAM="0"
+    else
+      GPU_VRAM="${GPU_VRAM%%.*}"
+    fi
+    GPU_COUNT=$(printf '%s\n' "$nvidia_names" | awk 'NF {c++} END {print c+0}')
     GPU_TOTAL_VRAM=0
-    while read -r v; do GPU_TOTAL_VRAM=$(( GPU_TOTAL_VRAM + v )); done \
-      < <(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>>"$LOGFILE")
+    while IFS= read -r v; do
+      v=$(echo "$v" | xargs)
+      [[ "$v" =~ ^[0-9]+([.][0-9]+)?$ ]] || continue
+      GPU_TOTAL_VRAM=$(( GPU_TOTAL_VRAM + ${v%%.*} ))
+    done <<< "$nvidia_mem"
     if [[ $GPU_TOTAL_VRAM -eq 0 ]]; then GPU_TOTAL_VRAM=$GPU_VRAM; fi
 
   elif command -v rocm-smi &>/dev/null || [[ -e /dev/kfd ]]; then
     GPU_BACKEND="amd"
-    GPU_NAME=$(rocm-smi --showproductname 2>>"$LOGFILE" | grep -oP 'Card series:\s*\K.*' | head -1 || echo "AMD GPU")
-    GPU_VRAM=$(rocm-smi --showmeminfo vram 2>>"$LOGFILE" | grep -oP 'Total Memory \(B\):\s*\K[0-9]+' | head -1 || echo "0")
+    local amd_name_out amd_vram_out
+    amd_name_out=$(rocm-smi --showproductname 2>>"$LOGFILE" || echo "")
+    GPU_NAME=$(printf '%s\n' "$amd_name_out" | awk -F'Card series:' 'NF>1 {gsub(/^[[:space:]]+/, "", $2); print $2; exit}')
+    GPU_NAME="${GPU_NAME:-AMD GPU}"
+    amd_vram_out=$(rocm-smi --showmeminfo vram 2>>"$LOGFILE" || echo "")
+    GPU_VRAM=$(printf '%s\n' "$amd_vram_out" | awk -F'Total Memory \\(B\\):' 'NF>1 {gsub(/^[[:space:]]+/, "", $2); print $2; exit}')
+    if [[ ! "$GPU_VRAM" =~ ^[0-9]+$ ]]; then
+      GPU_VRAM="0"
+    fi
     # Convert bytes to MiB
     if [[ "${GPU_VRAM:-0}" -gt 1000000 ]]; then
       GPU_VRAM=$(( GPU_VRAM / 1048576 ))
     fi
-    GPU_COUNT=$(rocm-smi --showid 2>>"$LOGFILE" | grep -c 'GPU\[' || echo 1)
+    GPU_COUNT=$(rocm-smi --showid 2>>"$LOGFILE" | awk '/GPU\[/{c++} END {print c+0}')
     if [[ $GPU_COUNT -ge 2 ]]; then
       GPU_TOTAL_VRAM=$(( GPU_VRAM * GPU_COUNT ))  # rocm-smi per-device sum
     else

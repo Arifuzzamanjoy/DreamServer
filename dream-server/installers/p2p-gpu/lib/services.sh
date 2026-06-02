@@ -114,8 +114,13 @@ _generate_p2p_gpu_overlay() {
 services:
   llama-server:
     environment:
+      LLAMA_ARG_SPLIT_MODE: "${LLAMA_ARG_SPLIT_MODE:-}"
+      LLAMA_ARG_TENSOR_SPLIT: "${LLAMA_ARG_TENSOR_SPLIT:-}"
       LLAMA_ARG_MAIN_GPU: "${LLAMA_ARG_MAIN_GPU:-}"
       GGML_CUDA_P2P: "${GGML_CUDA_P2P:-}"
+      # NCCL hints (only consumed when the llama-server image bundles NCCL)
+      NCCL_P2P_LEVEL: "${NCCL_P2P_LEVEL:-}"
+      NCCL_P2P_DISABLE: "${NCCL_P2P_DISABLE:-}"
     deploy:
       resources:
         reservations:
@@ -130,7 +135,9 @@ P2P_OVERLAY_EOF
 services:
   llama-server:
     environment:
+      LLAMA_ARG_SPLIT_MODE: "${LLAMA_ARG_SPLIT_MODE:-}"
       LLAMA_ARG_TENSOR_SPLIT: "${LLAMA_ARG_TENSOR_SPLIT:-}"
+      LLAMA_ARG_MAIN_GPU: "${LLAMA_ARG_MAIN_GPU:-}"
 P2P_OVERLAY_EOF
   else
     if [[ -f "$overlay" ]]; then

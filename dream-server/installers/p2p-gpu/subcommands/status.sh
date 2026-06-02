@@ -36,8 +36,13 @@ cmd_status() {
     amd)
       if command -v rocm-smi >/dev/null 2>&1; then
         local amd_name amd_vram
-        amd_name=$(rocm-smi --showproductname 2>>"$LOGFILE" | grep -oP 'Card series:\s*\K.*' | head -1 || echo "AMD GPU")
-        amd_vram=$(rocm-smi --showmeminfo vram 2>>"$LOGFILE" | grep -oP 'Total Memory \(B\):\s*\K[0-9]+' | head -1 || echo "0")
+        local amd_name_out amd_vram_out
+        amd_name_out=$(rocm-smi --showproductname 2>>"$LOGFILE" || echo "")
+        amd_name=$(printf '%s\n' "$amd_name_out" | awk -F'Card series:' 'NF>1 {gsub(/^[[:space:]]+/, "", $2); print $2; exit}')
+        amd_name="${amd_name:-AMD GPU}"
+        amd_vram_out=$(rocm-smi --showmeminfo vram 2>>"$LOGFILE" || echo "")
+        amd_vram=$(printf '%s\n' "$amd_vram_out" | awk -F'Total Memory \\(B\\):' 'NF>1 {gsub(/^[[:space:]]+/, "", $2); print $2; exit}')
+        [[ "$amd_vram" =~ ^[0-9]+$ ]] || amd_vram="0"
         if [[ "${amd_vram:-0}" -gt 1000000 ]]; then
           amd_vram=$(( amd_vram / 1048576 ))
         fi
