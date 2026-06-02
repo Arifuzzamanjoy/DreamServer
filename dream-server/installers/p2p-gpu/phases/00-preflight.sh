@@ -204,40 +204,19 @@ fi
 
 # ── HTTPS trust (proxy CA) ─────────────────────────────────────────────────
 _verify_https_trust() {
-  local urls=(
-    "https://huggingface.co"
-    "https://registry-1.docker.io/v2/"
-  )
-  local failed=false
-
-  if ! command -v curl &>/dev/null; then
-    warn "curl not found — skipping HTTPS trust check"
+  if ! command -v docker &>/dev/null; then
+    warn "docker not found — skipping Docker trust check"
     return 0
   fi
 
-  for url in "${urls[@]}"; do
-    if curl -fsI --max-time 10 "$url" > /dev/null 2>>"$LOGFILE"; then
-      continue
-    fi
-    local rc=$?
-    if [[ "$rc" -eq 60 ]]; then
-      warn "HTTPS trust failure when contacting ${url} (curl exit 60)"
-      failed=true
-    else
-      warn "HTTPS check failed for ${url} (curl exit ${rc})"
-    fi
-  done
-
-  if [[ "$failed" == "true" ]]; then
+  if ensure_docker_registry_trust; then
+    # shellcheck disable=SC2034
+    TLS_OK="true"
+    log "Docker registry trust verified during preflight"
+  else
+    # shellcheck disable=SC2034
     TLS_OK="false"
-    warn "System TLS trust is broken — attempting automatic proxy CA remediation"
-    if remediate_tls_trust; then
-      # shellcheck disable=SC2034
-      TLS_OK="true"
-      log "TLS trust restored during preflight"
-    else
-      warn "Automatic TLS remediation did not fully resolve trust — phase 09 will stop before image pulls"
-    fi
+    warn "Docker registry trust still broken after remediation — phase 09 will stop before image pulls"
   fi
 }
 

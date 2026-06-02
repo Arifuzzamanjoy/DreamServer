@@ -23,7 +23,9 @@ source "${P2P_GPU_DIR}/lib/environment.sh"
 export PATH="${STUB_DIR}:${PATH}"
 export DREAM_PROXY_CA_STORE_DIR="$CA_STORE_DIR"
 export DREAM_DOCKER_CERTS_DIR="$DOCKER_CERTS_DIR"
+export DOCKER_CERTS_DIR="$DOCKER_CERTS_DIR"
 export PKG_MARKER TLS_FIXED_MARKER LOGFILE TLS_FIX_SCENARIO
+unset SSL_CERT_FILE DREAM_PROXY_CA
 
 cat >"${STUB_DIR}/dpkg" <<'EOF'
 #!/usr/bin/env bash
@@ -90,19 +92,22 @@ EOF
 cat >"${STUB_DIR}/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "$1" == "pull" && "$2" == "hello-world:latest" ]]; then
-  if [[ -f "$TLS_FIXED_MARKER" ]]; then
-    exit 0
+if [[ "$1" == "manifest" && "$2" == "inspect" ]]; then
+  ref="$3"
+  if [[ "$TLS_FIX_SCENARIO" == "broken" ]]; then
+    echo "x509: certificate signed by unknown authority" >&2
+    exit 1
   fi
-  exit 1
-fi
-if [[ "$1" == "pull" && "$2" == "hello-world" ]]; then
-  if [[ -f "$TLS_FIXED_MARKER" ]]; then
-    exit 0
+
+  if [[ "$ref" == "docker.io/library/hello-world:latest" || "$ref" == "ghcr.io/cli/cli:latest" ]]; then
+    if [[ -f "${DOCKER_CERTS_DIR}/docker.io/ca.crt" && -f "${DOCKER_CERTS_DIR}/registry-1.docker.io/ca.crt" && -f "${DOCKER_CERTS_DIR}/index.docker.io/ca.crt" && -f "${DOCKER_CERTS_DIR}/ghcr.io/ca.crt" ]]; then
+      exit 0
+    fi
+    echo "x509: certificate signed by unknown authority" >&2
+    exit 1
   fi
-  exit 1
 fi
-exit 0
+exit 1
 EOF
 
 cat >"${STUB_DIR}/systemctl" <<'EOF'
@@ -162,8 +167,15 @@ if [[ "$first_count" -ne 2 ]]; then
   exit 1
 fi
 
-if [[ ! -f "${DOCKER_CERTS_DIR}/docker.io/ca.crt" || ! -f "${DOCKER_CERTS_DIR}/ghcr.io/ca.crt" ]]; then
-  echo "Expected Docker registry trust files to be created" >&2
+for host in docker.io registry-1.docker.io index.docker.io ghcr.io; do
+  if [[ ! -f "${DOCKER_CERTS_DIR}/${host}/ca.crt" ]]; then
+    echo "Expected Docker registry trust file for ${host} to be created" >&2
+    exit 1
+  fi
+done
+
+if ! _gate_phase09_tls_trust; then
+  echo "Expected phase 09 TLS gate to pass after remediation" >&2
   exit 1
 fi
 
@@ -188,6 +200,7 @@ fi
 TLS_FIX_SCENARIO=broken
 rm -f "$TLS_FIXED_MARKER"
 rm -f "${CA_STORE_DIR}"/dream-proxy-*.crt
+rm -f "${DOCKER_CERTS_DIR}"/docker.io/ca.crt "${DOCKER_CERTS_DIR}"/registry-1.docker.io/ca.crt "${DOCKER_CERTS_DIR}"/index.docker.io/ca.crt "${DOCKER_CERTS_DIR}"/ghcr.io/ca.crt
 
 if remediate_tls_trust; then
   echo "Expected remediation to fail when no proxy CA can be extracted" >&2
@@ -200,6 +213,6 @@ if [[ "$TLS_OK" != "false" ]]; then
 fi
 
 if (TLS_OK=false; _gate_phase09_tls_trust); then
-  echo "Expected phase 09 TLS gate to abort when TLS_OK=false" >&2
+  echo "Expected phase 09 TLS gate to abort when Docker trust remains broken" >&2
   exit 1
 fi

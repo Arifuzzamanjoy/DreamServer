@@ -236,6 +236,57 @@ wait_for_http() {
   return 1
 }
 
+# Probe whether Docker can reach trusted registries for real image metadata.
+docker_registry_trusted() {
+  local -a refs=(
+    "docker.io/library/hello-world:latest"
+    "ghcr.io/cli/cli:latest"
+  )
+  local ref output
+
+  if ! command -v docker &>/dev/null; then
+    return 1
+  fi
+
+  for ref in "${refs[@]}"; do
+    if output=$(docker manifest inspect "$ref" 2>&1); then
+      continue
+    fi
+
+    if [[ "$output" == *"x509: certificate signed by unknown authority"* ]]; then
+      warn "Docker registry trust probe failed for ${ref} (x509 unknown authority)"
+    else
+      warn "Docker registry trust probe failed for ${ref}: ${output}"
+    fi
+    return 1
+  done
+
+  return 0
+}
+
+# Probe, remediate if needed, then re-probe Docker registry trust.
+ensure_docker_registry_trust() {
+  DOCKER_TLS_OK="false"
+
+  if docker_registry_trusted; then
+    DOCKER_TLS_OK="true"
+    TLS_OK="true"
+    return 0
+  fi
+
+  warn "Docker registry trust is broken — attempting automatic proxy CA remediation"
+  if remediate_tls_trust && docker_registry_trusted; then
+    DOCKER_TLS_OK="true"
+    TLS_OK="true"
+    log "Docker registry trust restored"
+    return 0
+  fi
+
+  DOCKER_TLS_OK="false"
+  TLS_OK="false"
+  return 1
+}
+
 # Split a PEM bundle into one cert per file.
 _split_pem_bundle() {
   local bundle_file="$1" output_dir="$2" prefix="${3:-dream-proxy}"
@@ -299,12 +350,7 @@ remediate_tls_trust() {
       awk '
         /-----BEGIN CERTIFICATE-----/ {in_cert=1}
         in_cert { print }
-        /-----END CERTIFICATE-----/ {
-          if (in_cert) {
-            print
-            in_cert=0
-          }
-        }
+        /-----END CERTIFICATE-----/ { print; in_cert=0; next }
       ' "$source_file" >> "$chain_file"
     done
   else
@@ -314,14 +360,10 @@ remediate_tls_trust() {
       | awk '
           /-----BEGIN CERTIFICATE-----/ {in_cert=1}
           in_cert { print }
-          /-----END CERTIFICATE-----/ {
-            if (in_cert) {
-              print
-              in_cert=0
-            }
-          }
+          /-----END CERTIFICATE-----/ { print; in_cert=0; next }
         ' > "$chain_file"; then
       warn "Failed to extract the proxy certificate chain"
+      DOCKER_TLS_OK="false"
       TLS_OK="false"
       return 1
     fi
@@ -329,6 +371,7 @@ remediate_tls_trust() {
 
   if [[ ! -s "$chain_file" ]]; then
     warn "Unable to locate a proxy CA chain to trust"
+    DOCKER_TLS_OK="false"
     TLS_OK="false"
     return 1
   fi
@@ -341,6 +384,7 @@ remediate_tls_trust() {
 
   if [[ ${#cert_files[@]} -eq 0 ]]; then
     warn "Proxy CA chain did not contain any certificates"
+    DOCKER_TLS_OK="false"
     TLS_OK="false"
     return 1
   fi
@@ -377,32 +421,42 @@ remediate_tls_trust() {
 
   if ! update-ca-certificates --fresh 2>>"$LOGFILE"; then
     warn "update-ca-certificates --fresh failed"
+    DOCKER_TLS_OK="false"
     TLS_OK="false"
     return 1
   fi
 
-  install -d -m 0755 "${docker_certs_dir}/docker.io" "${docker_certs_dir}/ghcr.io"
+  local -a docker_hosts=("docker.io" "registry-1.docker.io" "index.docker.io" "ghcr.io")
   cat "${installed_targets[@]}" > "${staging_root}/docker-ca.crt"
-  if [[ $EUID -eq 0 ]]; then
-    install -m 0644 -o root -g root "${staging_root}/docker-ca.crt" "${docker_certs_dir}/docker.io/ca.crt"
-    install -m 0644 -o root -g root "${staging_root}/docker-ca.crt" "${docker_certs_dir}/ghcr.io/ca.crt"
-  else
-    install -m 0644 "${staging_root}/docker-ca.crt" "${docker_certs_dir}/docker.io/ca.crt"
-    install -m 0644 "${staging_root}/docker-ca.crt" "${docker_certs_dir}/ghcr.io/ca.crt"
-  fi
+  local docker_host
+  for docker_host in "${docker_hosts[@]}"; do
+    install -d -m 0755 "${docker_certs_dir}/${docker_host}"
+    if [[ $EUID -eq 0 ]]; then
+      install -m 0644 -o root -g root "${staging_root}/docker-ca.crt" "${docker_certs_dir}/${docker_host}/ca.crt"
+    else
+      install -m 0644 "${staging_root}/docker-ca.crt" "${docker_certs_dir}/${docker_host}/ca.crt"
+    fi
+  done
 
   # [NON-FATAL: docker] Docker may not be managed by systemctl on Vast.ai.
   if ! systemctl restart docker 2>>"$LOGFILE"; then
-    service docker restart 2>>"$LOGFILE" || warn "docker restart failed (manual: systemctl restart docker || service docker restart)"
+    if ! service docker restart 2>>"$LOGFILE"; then
+      warn "docker restart failed (non-fatal; certs.d should still be picked up per pull)"
+    fi
   fi
 
-  if curl -fsI --max-time 10 https://registry-1.docker.io/v2/ > /dev/null 2>>"$LOGFILE" \
-    && timeout 45 docker pull hello-world:latest >/dev/null 2>>"$LOGFILE"; then
+  if docker_registry_trusted; then
+    # shellcheck disable=SC2034
+    DOCKER_TLS_OK="true"
+    # shellcheck disable=SC2034
     TLS_OK="true"
     log "TLS trust remediation succeeded"
     return 0
   fi
 
+  # shellcheck disable=SC2034
+  DOCKER_TLS_OK="false"
+  # shellcheck disable=SC2034
   TLS_OK="false"
   warn "TLS trust still broken after remediation"
   return 1
@@ -410,7 +464,7 @@ remediate_tls_trust() {
 
 # Hard gate for phase 09 image pulls.
 _gate_phase09_tls_trust() {
-  if [[ "${TLS_OK:-true}" == "true" ]]; then
+  if ensure_docker_registry_trust; then
     return 0
   fi
 
