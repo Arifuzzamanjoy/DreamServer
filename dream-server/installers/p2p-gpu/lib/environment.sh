@@ -238,8 +238,8 @@ detect_gpu() {
 
   if command -v nvidia-smi &>/dev/null && nvidia-smi --query-gpu=name --format=csv,noheader &>/dev/null 2>&1; then
     GPU_BACKEND="nvidia"
-    GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>>"$LOGFILE" | head -1 | xargs)
-    GPU_VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>>"$LOGFILE" | head -1 | xargs)
+    GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>>"$LOGFILE" | sed -n '1p' | xargs)
+    GPU_VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>>"$LOGFILE" | sed -n '1p' | xargs)
     GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>>"$LOGFILE" | wc -l)
     GPU_TOTAL_VRAM=0
     while read -r v; do GPU_TOTAL_VRAM=$(( GPU_TOTAL_VRAM + v )); done \
@@ -631,6 +631,7 @@ apply_post_install_fixes() {
   _apply_compatibility_fixes "$ds_dir"
   _apply_env_defaults "$ds_dir" "$env_file" "$data_dir"
   ensure_dream_cli_command "$ds_dir"
+  _cap_context_for_vram "$ds_dir"
 
   # ── [FIX: nvml-mismatch] Post-install NVIDIA driver check (fallback) ──────
   if [[ "$gpu_backend" == "nvidia" ]]; then
@@ -777,12 +778,24 @@ _cap_context_for_vram() {
   fi
 
   local vram_mb="${GPU_VRAM:-0}"
-
-  # Multi-GPU: use total VRAM across all GPUs for headroom calculation
-  if [[ "${GPU_COUNT:-1}" -ge 2 && "${GPU_TOTAL_VRAM:-0}" -gt 0 ]]; then
-    vram_mb="${GPU_TOTAL_VRAM}"
-  fi
+  local per_gpu_vram_mb="${GPU_VRAM:-0}"
+  local model_size_per_gpu_mb=0
   local current_ctx model_size_mb headroom_mb safe_ctx kv_quant
+
+  # Multi-GPU: cap by per-GPU VRAM budget to avoid CUDA0 OOM
+  if [[ "${GPU_COUNT:-1}" -ge 2 && "${GPU_TOTAL_VRAM:-0}" -gt 0 ]]; then
+    per_gpu_vram_mb=$(( GPU_TOTAL_VRAM / GPU_COUNT ))
+    if [[ "${GPU_VRAMS+set}" == "set" && "${#GPU_VRAMS[@]}" -gt 0 ]]; then
+      local min_vram="${GPU_VRAMS[0]}"
+      local vram
+      for vram in "${GPU_VRAMS[@]}"; do
+        if [[ "$vram" -lt "$min_vram" ]]; then
+          min_vram="$vram"
+        fi
+      done
+      per_gpu_vram_mb="$min_vram"
+    fi
+  fi
 
   current_ctx="$(env_get "$env_file" "CTX_SIZE")"
   current_ctx="${current_ctx:-16384}"
@@ -791,19 +804,26 @@ _cap_context_for_vram() {
   model_size_mb="$(env_get "$env_file" "LLM_MODEL_SIZE_MB")"
   model_size_mb="${model_size_mb:-${TIER_MODEL_SIZE_MB:-0}}"
 
-  if [[ "$vram_mb" -eq 0 || "$model_size_mb" -eq 0 ]]; then
+  if [[ "$per_gpu_vram_mb" -eq 0 || "$model_size_mb" -eq 0 ]]; then
     log "VRAM or model size unknown -- skipping context cap"
     return 0
   fi
 
-  # Calculate VRAM headroom (VRAM - model weight - 1 GB overhead for CUDA/driver)
-  headroom_mb=$(( vram_mb - model_size_mb - 1024 ))
+  # Split model weight across GPUs when available; fall back to full size on single GPU.
+  if [[ "${GPU_COUNT:-1}" -ge 2 ]]; then
+    model_size_per_gpu_mb=$(( (model_size_mb + GPU_COUNT - 1) / GPU_COUNT ))
+  else
+    model_size_per_gpu_mb="$model_size_mb"
+  fi
+
+  # Calculate per-GPU headroom (VRAM - model weight per GPU - 1 GB overhead)
+  headroom_mb=$(( per_gpu_vram_mb - model_size_per_gpu_mb - 1024 ))
 
   if [[ $headroom_mb -le 0 ]]; then
     # Model barely fits -- use minimum context
     safe_ctx=2048
     kv_quant="q4_0"
-    warn "Model (${model_size_mb}MB) nearly exceeds GPU VRAM (${vram_mb}MB) -- setting CTX_SIZE=${safe_ctx}"
+    warn "Model (${model_size_mb}MB) nearly exceeds GPU VRAM (${per_gpu_vram_mb}MB) -- setting CTX_SIZE=${safe_ctx}"
   elif [[ $headroom_mb -le 2048 ]]; then
     # ~2 GB headroom
     safe_ctx=4096
@@ -827,8 +847,8 @@ _cap_context_for_vram() {
   fi
 
   if [[ "$current_ctx" -gt "$safe_ctx" ]]; then
-    log "VRAM budget: ${vram_mb}MB total, ${model_size_mb}MB model, ${headroom_mb}MB headroom"
-    log "Capping CTX_SIZE: ${current_ctx} -> ${safe_ctx} (prevents OOM on ${vram_mb}MB GPU)"
+    log "VRAM budget per GPU: ${per_gpu_vram_mb}MB, model per GPU: ${model_size_per_gpu_mb}MB, headroom: ${headroom_mb}MB"
+    log "Capping CTX_SIZE: ${current_ctx} -> ${safe_ctx} (prevents OOM on ${per_gpu_vram_mb}MB GPU)"
     env_set "$env_file" "CTX_SIZE" "$safe_ctx"
 
     # Set KV cache quantization to maximize context within VRAM budget
@@ -843,5 +863,46 @@ _cap_context_for_vram() {
     fi
   else
     log "CTX_SIZE=${current_ctx} fits within VRAM budget (${headroom_mb}MB headroom) -- no change"
+  fi
+
+  _cap_batch_for_vram "$env_file" "$per_gpu_vram_mb" "$safe_ctx"
+}
+
+# ── VRAM-aware batch size capping ─────────────────────────────────────────
+# Prevent compute buffer OOM on multi-GPU by bounding batch size per GPU.
+_cap_batch_for_vram() {
+  local env_file="$1" vram_mb="$2" ctx_size="$3"
+  local current_batch safe_batch
+
+  current_batch="$(env_get "$env_file" "LLAMA_BATCH_SIZE")"
+  current_batch="${current_batch:-2048}"
+
+  if [[ "$vram_mb" -le 12288 ]]; then
+    safe_batch=256
+  elif [[ "$vram_mb" -le 16384 ]]; then
+    safe_batch=512
+  elif [[ "$vram_mb" -le 24576 ]]; then
+    safe_batch=1024
+  else
+    safe_batch=2048
+  fi
+
+  if [[ "$ctx_size" -ge 65536 && "$safe_batch" -gt 512 ]]; then
+    safe_batch=512
+  elif [[ "$ctx_size" -ge 32768 && "$safe_batch" -gt 1024 ]]; then
+    safe_batch=1024
+  fi
+
+  if [[ ! "$current_batch" =~ ^[0-9]+$ ]]; then
+    env_set "$env_file" "LLAMA_BATCH_SIZE" "$safe_batch"
+    log "LLAMA_BATCH_SIZE invalid ('${current_batch}') -- set to ${safe_batch}"
+    return 0
+  fi
+
+  if [[ "$current_batch" -gt "$safe_batch" ]]; then
+    env_set "$env_file" "LLAMA_BATCH_SIZE" "$safe_batch"
+    log "Capping LLAMA_BATCH_SIZE: ${current_batch} -> ${safe_batch} (prevents CUDA OOM)"
+  else
+    log "LLAMA_BATCH_SIZE=${current_batch} fits within VRAM budget -- no change"
   fi
 }
