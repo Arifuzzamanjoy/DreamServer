@@ -15,7 +15,7 @@
 #
 # Modder notes:
 #   env_set is idempotent — safe to call multiple times with same key.
-#   env_set creates .env with 0600 mode to protect secrets.
+#   env_set creates .env with 0660 mode to protect secrets and allow dream user access.
 #   find_dream_dir checks both expected DreamServer install paths.
 #   detect_gpu() is the single source of truth for GPU detection —
 #   call it once and reuse the result (avoid duplicate detection).
