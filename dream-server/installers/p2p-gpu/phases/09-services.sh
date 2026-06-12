@@ -20,6 +20,13 @@ set -euo pipefail
 
 step "Phase 9/12: Starting services"
 
+_derive_llm_model() {
+  echo "$1" \
+    | sed -E 's/\.(gguf|GGUF)$//' \
+    | sed -E 's/-Q[0-9]+([._][A-Za-z0-9]+)*$//' \
+    | tr '[:upper:]' '[:lower:]'
+}
+
 # Verify the configured model file exists - llama-server will crash without it
 _verify_model_file() {
   local ds_dir="$1"
@@ -43,6 +50,7 @@ _verify_model_file() {
   if [[ -n "$fallback" ]]; then
     log "Found fallback model: ${fallback} - updating GGUF_FILE in .env"
     env_set "$env_file" "GGUF_FILE" "$fallback"
+    env_set "$env_file" "LLM_MODEL" "$(_derive_llm_model "$fallback")"
     return 0
   fi
 
@@ -160,6 +168,7 @@ _handle_oom() {
       curl -sfL -o "${models_dir}/${tiny_name}" "$tiny_url"
   fi
   env_set "$env_file" "GGUF_FILE" "$tiny_name"
+  env_set "$env_file" "LLM_MODEL" "$(_derive_llm_model "$tiny_name")"
   # [NON-FATAL: llama] Individual service failure does not block others.
   docker restart dream-llama-server || warn "llama-server restart failed (non-fatal)"
   echo -n "  Retrying with smaller model "
@@ -176,6 +185,7 @@ _handle_missing_model() {
     fallback=$(find "$models_dir" -name "*.gguf" -size +50M 2>&1 | head -1 | xargs -r basename || echo "")
     if [[ -n "$fallback" ]]; then
       env_set "$env_file" "GGUF_FILE" "$fallback"
+      env_set "$env_file" "LLM_MODEL" "$(_derive_llm_model "$fallback")"
       # [NON-FATAL: llama] Individual service failure does not block others.
       docker restart dream-llama-server || warn "llama-server restart failed (non-fatal)"
       warn "Switched to ${fallback}"

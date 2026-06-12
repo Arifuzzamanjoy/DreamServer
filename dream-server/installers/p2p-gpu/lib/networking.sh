@@ -618,18 +618,19 @@ _print_opencode_section() {
 
   opencode_status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://127.0.0.1:${opencode_port}/" 2>/dev/null || echo "000")
 
-  if [[ "$opencode_status" =~ ^[23] ]]; then
-    opencode_password=$(env_get "$env_file" "OPENCODE_SERVER_PASSWORD")
-    if [[ -n "$opencode_password" ]]; then
-      echo -e "${BOLD}OpenCode Web Credentials:${NC}"
-      echo -e "  ${BOLD}URL:${NC}      http://localhost:${opencode_port}/"
-      echo -e "  ${BOLD}Username:${NC}  (optional; auth via password)"
-      echo -e "  ${BOLD}Password:${NC}  ${opencode_password}"
-      echo ""
-      echo -e "  ${DIM}Access via SSH tunnel: scp -P ${ssh_port} root@${host_ip}:${ds_dir}/.env .${NC}"
-      echo -e "  ${DIM}Then grep OPENCODE_SERVER_PASSWORD .env${NC}"
-      echo ""
+  opencode_password=$(env_get "$env_file" "OPENCODE_SERVER_PASSWORD")
+  if [[ -n "$opencode_password" ]]; then
+    echo -e "${BOLD}OpenCode Web Credentials:${NC}"
+    echo -e "  ${BOLD}URL:${NC}      http://localhost:${opencode_port}/"
+    echo -e "  ${BOLD}Username:${NC}  (optional; auth via password)"
+    echo -e "  ${BOLD}Password:${NC}  ${opencode_password}"
+    echo ""
+    if [[ ! "$opencode_status" =~ ^[23] ]]; then
+      echo -e "  ${DIM}OpenCode is still starting; retry this URL shortly.${NC}"
     fi
+    echo -e "  ${DIM}Access via SSH tunnel: scp -P ${ssh_port} root@${host_ip}:${ds_dir}/.env .${NC}"
+    echo -e "  ${DIM}Then grep OPENCODE_SERVER_PASSWORD .env${NC}"
+    echo ""
   fi
 }
 
