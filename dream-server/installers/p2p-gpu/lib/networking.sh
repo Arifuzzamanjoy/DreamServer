@@ -486,6 +486,7 @@ print_access_info() {
   echo ""
 
   _print_ssh_section "$ds_dir" "$env_file" "$host_ip" "$ssh_port"
+  _print_opencode_section "$ds_dir" "$env_file" "$host_ip" "$ssh_port"
   _print_service_list "$ds_dir"
   _print_model_upload_help "$ds_dir" "$host_ip" "$ssh_port"
   _print_commands_help "$ds_dir"
@@ -606,6 +607,30 @@ _print_service_list() {
     printf "  %-22s http://localhost:%s\n" "${label}:" "${port}"
   done
   echo ""
+}
+
+_print_opencode_section() {
+  local ds_dir="$1" env_file="$2" host_ip="$3" ssh_port="$4"
+  local opencode_port opencode_password opencode_status
+
+  opencode_port=$(env_get "$env_file" "OPENCODE_PORT")
+  opencode_port="${opencode_port:-3003}"
+
+  opencode_status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://127.0.0.1:${opencode_port}/" 2>/dev/null || echo "000")
+
+  if [[ "$opencode_status" =~ ^[23] ]]; then
+    opencode_password=$(env_get "$env_file" "OPENCODE_SERVER_PASSWORD")
+    if [[ -n "$opencode_password" ]]; then
+      echo -e "${BOLD}OpenCode Web Credentials:${NC}"
+      echo -e "  ${BOLD}URL:${NC}      http://localhost:${opencode_port}/"
+      echo -e "  ${BOLD}Username:${NC}  (optional; auth via password)"
+      echo -e "  ${BOLD}Password:${NC}  ${opencode_password}"
+      echo ""
+      echo -e "  ${DIM}Access via SSH tunnel: scp -P ${ssh_port} root@${host_ip}:${ds_dir}/.env .${NC}"
+      echo -e "  ${DIM}Then grep OPENCODE_SERVER_PASSWORD .env${NC}"
+      echo ""
+    fi
+  fi
 }
 
 _print_model_upload_help() {

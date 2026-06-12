@@ -68,6 +68,7 @@ if [[ -n "$tier_gguf" && -f "${models_dir}/${tier_gguf}" ]]; then
   if [[ $file_size -gt 100000000 ]]; then
     env_set "$env_file" "GGUF_FILE" "$tier_gguf"
     env_set "$env_file" "LLM_MODEL" "$(_derive_llm_model "$tier_gguf")"
+    env_set "$env_file" "LLM_MODEL_SIZE_MB" "$(( file_size / 1048576 ))"
     model_ready=true
     log "Tier model already present: ${tier_gguf} ($(( file_size / 1048576 )) MB)"
   else
@@ -84,9 +85,8 @@ if [[ "$model_ready" != "true" ]]; then
     if [[ $file_size -gt 100000000 ]]; then
       model_ready=true
       log "Model verified: ${gguf_file} ($(( file_size / 1048576 )) MB)"
-      if [[ -z "$(env_get "$env_file" "LLM_MODEL")" ]]; then
-        env_set "$env_file" "LLM_MODEL" "$(_derive_llm_model "$gguf_file")"
-      fi
+      env_set "$env_file" "LLM_MODEL" "$(_derive_llm_model "$gguf_file")"
+      env_set "$env_file" "LLM_MODEL_SIZE_MB" "$(( file_size / 1048576 ))"
     else
       warn "Model file exists but too small (${file_size} bytes) — likely corrupt"
       rm -f "${models_dir}/${gguf_file}"
@@ -99,8 +99,10 @@ if [[ "$model_ready" != "true" ]]; then
   any_model=$(find "$models_dir" -name "*.gguf" -size +100M 2>>"$LOGFILE" | head -1 || echo "")
   if [[ -n "$any_model" ]]; then
     found_name=$(basename "$any_model")
+    file_size=$(stat -c%s "$any_model" || echo 0)
     env_set "$env_file" "GGUF_FILE" "$found_name"
     env_set "$env_file" "LLM_MODEL" "$(_derive_llm_model "$found_name")"
+    env_set "$env_file" "LLM_MODEL_SIZE_MB" "$(( file_size / 1048576 ))"
     model_ready=true
     log "Found existing model: ${found_name} — updated GGUF_FILE"
   fi
@@ -147,6 +149,7 @@ if [[ "$model_ready" != "true" ]]; then
         if [[ "$dl_size" -gt 50000000 ]]; then
           env_set "$env_file" "GGUF_FILE" "$bootstrap_name"
           env_set "$env_file" "LLM_MODEL" "$(_derive_llm_model "$bootstrap_name")"
+          env_set "$env_file" "LLM_MODEL_SIZE_MB" "$(( dl_size / 1048576 ))"
           model_ready=true
           log "Bootstrap model downloaded: ${bootstrap_name} ($(( dl_size / 1048576 )) MB)"
         else

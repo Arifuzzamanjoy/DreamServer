@@ -35,3 +35,7 @@ jobs:
         run: |
           # Live Vast.ai + GPU validation is performed manually outside CI.
           bash dream-server/installers/p2p-gpu/tests/test-nvml-mismatch.sh
+
+      - name: P2P GPU regressions
+        run: |
+          bash dream-server/installers/p2p-gpu/tests/test-p2p-gpu-regressions.sh

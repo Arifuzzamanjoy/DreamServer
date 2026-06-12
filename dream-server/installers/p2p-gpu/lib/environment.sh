@@ -768,9 +768,12 @@ _apply_env_defaults() {
 # this exceeds VRAM on cards <=24 GB with large models. Cap CTX_SIZE based
 # on available VRAM headroom after model weight, and enable KV cache
 # quantization to maximize usable context within the budget.
+# Enforce a practical MIN_AGENT_CTX floor to prevent the Hermes agent (82 skills
+# + 20 tools) from exceeding context on the first message.
 _cap_context_for_vram() {
   local ds_dir="$1"
   local env_file="${ds_dir}/.env"
+  local MIN_AGENT_CTX=8192  # Minimum context for Hermes agent baseline (82 skills + 20 tools)
 
   # Skip if no GPU
   if [[ "${GPU_BACKEND:-cpu}" == "cpu" ]]; then
@@ -820,13 +823,14 @@ _cap_context_for_vram() {
   headroom_mb=$(( per_gpu_vram_mb - model_size_per_gpu_mb - 1024 ))
 
   if [[ $headroom_mb -le 0 ]]; then
-    # Model barely fits -- use minimum context
-    safe_ctx=2048
+    # Model barely fits -- enforce minimum agent context to prevent first-message overflow
+    safe_ctx="$MIN_AGENT_CTX"
     kv_quant="q4_0"
     warn "Model (${model_size_mb}MB) nearly exceeds GPU VRAM (${per_gpu_vram_mb}MB) -- setting CTX_SIZE=${safe_ctx}"
+    warn "Hermes agent may still overflow if you use >$(( MIN_AGENT_CTX - 2048 )) tokens in a single prompt. Consider using a smaller model or larger instance."
   elif [[ $headroom_mb -le 2048 ]]; then
     # ~2 GB headroom
-    safe_ctx=4096
+    safe_ctx=8192
     kv_quant="q4_0"
   elif [[ $headroom_mb -le 4096 ]]; then
     # ~4 GB headroom (typical RTX 3090 with 18.6 GB model)
