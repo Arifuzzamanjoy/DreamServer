@@ -548,10 +548,6 @@ repair_nvml_mismatch() {
   local host_probe_output kernel_version="" lib_version="" initial_status post_repair_status
 
   log "Attempting to repair NVIDIA driver/library mismatch..."
-  # [NON-FATAL: apt] Toolchain and held-package cleanup are best-effort prerequisites.
-  _ensure_nvidia_build_toolchain
-  # [NON-FATAL: apt] Held NVIDIA packages can block a targeted upgrade.
-  _unhold_nvidia_packages
 
   detect_nvml_mismatch && initial_status=0 || initial_status=$?
   if [[ $initial_status -eq 0 ]]; then
@@ -567,6 +563,12 @@ repair_nvml_mismatch() {
       return 1
     fi
   fi
+
+  # Confirmed mismatch (status 1) or forced repair — prepare prerequisites now.
+  # [NON-FATAL: apt] Toolchain and held-package cleanup are best-effort prerequisites.
+  _ensure_nvidia_build_toolchain
+  # [NON-FATAL: apt] Held NVIDIA packages can block a targeted upgrade.
+  _unhold_nvidia_packages
 
   # Get kernel module version (the version that's actually loaded)
   if [[ -f /proc/driver/nvidia/version ]]; then

@@ -70,8 +70,10 @@ test() {
     "-w /etc/modprobe.d"|"-e /lib/modules/$(uname -r)"|"-e /.dockerenv")
       return 0
       ;;
+    *)
+      builtin test "$@"
+      ;;
   esac
-  builtin test "$@"
 }
 
 if _can_manage_host_driver; then
