@@ -279,10 +279,201 @@ detect_gpu_backend() {
   fi
 }
 
+# ── [FIX: host-driver-gating] Self-managed host NVIDIA driver guard ─────────
+_can_manage_host_driver() {
+  if ! test -w /etc/modprobe.d; then
+    return 1
+  fi
+
+  if ! test -e "/lib/modules/$(uname -r)"; then
+    return 1
+  fi
+
+  if test -e /.dockerenv; then
+    return 1
+  fi
+
+  if test -r /proc/1/cgroup && grep -Eq 'docker|containerd' /proc/1/cgroup 2>>"$LOGFILE"; then
+    return 1
+  fi
+
+  return 0
+}
+
 _has_nvml_mismatch_signature() {
   local output="${1:-}"
   echo "$output" | grep -Eqi \
     "driver/library version mismatch|failed to initialize nvml|nvidia-container-cli: initialization error: nvml error"
+}
+
+# ── [FIX: nvml-mismatch] NVIDIA build toolchain bootstrap ────────────────────
+_ensure_nvidia_build_toolchain() {
+  local kernel_version headers_pkg headers_path
+  kernel_version="$(uname -r)"
+  headers_pkg="linux-headers-${kernel_version}"
+  headers_path="/lib/modules/${kernel_version}/build"
+
+  if command -v dkms &>/dev/null && { test -e "$headers_path" || test -d "/usr/src/${headers_pkg}"; }; then
+    log "NVIDIA build toolchain already present"
+    return 0
+  fi
+
+  log "Ensuring NVIDIA build toolchain (${headers_pkg}, dkms, build-essential)"
+  # [NON-FATAL: dpkg] apt will still enforce DPkg::Lock::Timeout.
+  _wait_for_dpkg_lock 60 || warn "dpkg lock not released in time — DPkg::Lock::Timeout will handle"
+  if apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" update -qq 2>>"$LOGFILE" \
+    && apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" install -y -qq \
+      dkms build-essential "$headers_pkg" 2>>"$LOGFILE"; then
+    log "Installed NVIDIA build toolchain (${headers_pkg}, dkms, build-essential)"
+  else
+    warn "Unable to install NVIDIA build toolchain (non-fatal)"
+  fi
+
+  return 0
+}
+
+# ── [FIX: nvml-mismatch] nouveau detection / repair helpers ─────────────────
+_detect_nouveau_bound() {
+  if command -v lsmod &>/dev/null && lsmod 2>>"$LOGFILE" | awk '$1 == "nouveau" {exit 0} END {exit 1}'; then
+    log "nouveau kernel module is loaded"
+    return 0
+  fi
+
+  if command -v lspci &>/dev/null && lspci -k 2>>"$LOGFILE" | awk '
+    /NVIDIA/ {gpu=1}
+    gpu && /Kernel driver in use: nouveau/ {exit 0}
+    /^$/ {gpu=0}
+    END {exit 1}
+  '; then
+    log "nouveau is bound to an NVIDIA GPU"
+    return 0
+  fi
+
+  return 1
+}
+
+_blacklist_nouveau() {
+  local blacklist_file="/etc/modprobe.d/blacklist-nouveau.conf"
+  local changed=false
+
+  if ! test -f "$blacklist_file" || ! grep -qxF 'blacklist nouveau' "$blacklist_file" 2>>"$LOGFILE"; then
+    printf '%s\n' 'blacklist nouveau' >> "$blacklist_file"
+    changed=true
+  fi
+
+  if ! test -f "$blacklist_file" || ! grep -qxF 'options nouveau modeset=0' "$blacklist_file" 2>>"$LOGFILE"; then
+    printf '%s\n' 'options nouveau modeset=0' >> "$blacklist_file"
+    changed=true
+  fi
+
+  if [[ "$changed" == "true" ]]; then
+    log "Wrote ${blacklist_file}"
+  else
+    log "nouveau blacklist already present"
+  fi
+
+  # [NON-FATAL: initramfs] Rebuild may fail on odd kernels, but the blacklist file is still useful.
+  if update-initramfs -u 2>>"$LOGFILE"; then
+    log "Refreshed initramfs after nouveau blacklist"
+  else
+    warn "update-initramfs failed after nouveau blacklist (non-fatal)"
+  fi
+
+  warn "nouveau blacklisted — host reboot required for the NVIDIA module to bind (non-fatal)"
+  return 0
+}
+
+_unhold_nvidia_packages() {
+  local pkg unheld=0
+
+  while IFS= read -r pkg; do
+    [[ -z "$pkg" ]] && continue
+    # [NON-FATAL: apt] Package-specific unholds are best-effort so repair can continue.
+    if apt-mark unhold "$pkg" 2>>"$LOGFILE"; then
+      unheld=$((unheld + 1))
+    else
+      warn "Could not unhold ${pkg} (non-fatal)"
+    fi
+  done < <(apt-mark showhold 2>>"$LOGFILE" | awk '/^(nvidia-|libnvidia-|cuda-)/ {print $1}')
+
+  log "Unheld ${unheld} NVIDIA package(s)"
+  return 0
+}
+
+_detect_driver_below_minimum() {
+  local host_probe_output host_probe_rc host_driver host_major
+
+  host_probe_output=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>&1) && host_probe_rc=0 || host_probe_rc=$?
+  [[ -n "$host_probe_output" ]] && printf '%s\n' "$host_probe_output" >> "$LOGFILE"
+
+  if [[ $host_probe_rc -ne 0 ]]; then
+    if _has_nvml_mismatch_signature "$host_probe_output"; then
+      log "NVIDIA host probe reported NVML driver/library mismatch"
+    else
+      log "NVIDIA host driver version detection failed (non-fatal)"
+    fi
+    return 2
+  fi
+
+  host_driver=$(echo "$host_probe_output" | head -1 | xargs || echo "")
+  if [[ -z "$host_driver" ]]; then
+    log "NVIDIA host driver version detection failed (non-fatal)"
+    return 2
+  fi
+
+  host_major="${host_driver%%.*}"
+  if [[ ! "$host_major" =~ ^[0-9]+$ ]]; then
+    log "NVIDIA host driver version parsing failed (non-fatal)"
+    return 2
+  fi
+
+  if (( host_major < MIN_DRIVER_VERSION )); then
+    log "NVIDIA host driver ${host_driver} is below minimum ${MIN_DRIVER_VERSION}"
+    return 1
+  fi
+
+  log "NVIDIA host driver ${host_driver} meets minimum ${MIN_DRIVER_VERSION}"
+  return 0
+}
+
+_detect_nvidia_smi_missing() {
+  local gpu_present=false
+
+  if test -e /dev/nvidia0; then
+    gpu_present=true
+  elif command -v lspci &>/dev/null && lspci 2>>"$LOGFILE" | grep -qi 'NVIDIA'; then
+    gpu_present=true
+  fi
+
+  if [[ "$gpu_present" != "true" ]]; then
+    return 1
+  fi
+
+  if command -v nvidia-smi &>/dev/null; then
+    return 1
+  fi
+
+  log "NVIDIA GPU present but nvidia-smi is missing from PATH (partial removal detected)"
+  return 0
+}
+
+# ── [FIX: nvml-mismatch] Restore NVIDIA persistence after repair ────────────
+_reenable_nvidia_persistence() {
+  # [NON-FATAL: nvidia-smi] Persistence mode may not be supported on every host state.
+  nvidia-smi -pm 1 2>>"$LOGFILE" || warn "nvidia-smi persistence mode enable failed (non-fatal)"
+
+  if command -v systemctl &>/dev/null; then
+    # [NON-FATAL: systemd] Service management may be unavailable or the unit may be missing.
+    systemctl enable nvidia-persistenced 2>>"$LOGFILE" || warn "nvidia-persistenced enable failed (non-fatal)"
+    # [NON-FATAL: systemd] Service management may be unavailable or the unit may be missing.
+    systemctl start nvidia-persistenced 2>>"$LOGFILE" || warn "nvidia-persistenced start failed (non-fatal)"
+  elif command -v nvidia-persistenced &>/dev/null; then
+    # [NON-FATAL: daemon] Direct daemon start is best-effort on non-systemd hosts.
+    nvidia-persistenced 2>>"$LOGFILE" || warn "nvidia-persistenced binary start failed (non-fatal)"
+  else
+    # [NON-FATAL: daemon] Some minimal images do not ship the persistence daemon binary.
+    warn "nvidia-persistenced binary not found (non-fatal)"
+  fi
 }
 
 # ── [FIX: nvml-mismatch] NVIDIA driver/library version mismatch detection ────
@@ -357,6 +548,10 @@ repair_nvml_mismatch() {
   local host_probe_output kernel_version="" lib_version="" initial_status post_repair_status
 
   log "Attempting to repair NVIDIA driver/library mismatch..."
+  # [NON-FATAL: apt] Toolchain and held-package cleanup are best-effort prerequisites.
+  _ensure_nvidia_build_toolchain
+  # [NON-FATAL: apt] Held NVIDIA packages can block a targeted upgrade.
+  _unhold_nvidia_packages
 
   detect_nvml_mismatch && initial_status=0 || initial_status=$?
   if [[ $initial_status -eq 0 ]]; then
@@ -480,6 +675,7 @@ repair_nvml_mismatch() {
 
     detect_nvml_mismatch && post_repair_status=0 || post_repair_status=$?
     if [[ $post_repair_status -eq 0 ]]; then
+      _reenable_nvidia_persistence
       _pin_nvidia_packages
       return 0
     elif [[ $post_repair_status -eq 1 ]]; then
@@ -513,6 +709,7 @@ repair_nvml_mismatch() {
         log "nvidia-smi works after userspace downgrade"
         detect_nvml_mismatch && post_repair_status=0 || post_repair_status=$?
         if [[ $post_repair_status -eq 0 ]]; then
+          _reenable_nvidia_persistence
           _pin_nvidia_packages
           return 0
         elif [[ $post_repair_status -eq 1 ]]; then
@@ -528,34 +725,73 @@ repair_nvml_mismatch() {
 
   # ── Strategy 3: Upgrade everything (original approach) ──────────────────
   log "Strategy 3: Attempting full driver upgrade..."
-  if type -t _wait_for_dpkg_lock >/dev/null 2>&1; then
-    # [NON-FATAL: dpkg] apt will still enforce DPkg::Lock::Timeout.
-    _wait_for_dpkg_lock 60 || warn "dpkg lock not released in time — DPkg::Lock::Timeout will handle"
-  fi
-
-  if apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" update -qq 2>>"$LOGFILE" \
-    && apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" install -y -qq \
-      --only-upgrade "nvidia-driver-*" 2>>"$LOGFILE"; then
-    log "NVIDIA driver upgrade completed"
-    systemctl restart docker 2>>"$LOGFILE" || service docker restart 2>>"$LOGFILE" \
-      || warn "Docker restart failed (non-fatal)"
-    sleep 2
-    if nvidia-smi &>/dev/null; then  # stderr expected: driver reinit
-      detect_nvml_mismatch && post_repair_status=0 || post_repair_status=$?
-      if [[ $post_repair_status -eq 0 ]]; then
-        log "NVIDIA driver mismatch RESOLVED after upgrade"
-        _pin_nvidia_packages
-        return 0
-      elif [[ $post_repair_status -eq 1 ]]; then
-        warn "NVIDIA driver mismatch persists after upgrade"
-      else
-        warn "Unable to verify NVIDIA driver/library mismatch after upgrade"
-      fi
-    else
-      warn "nvidia-smi still fails after upgrade"
+  local can_manage_host_driver=false driver_upgrade_pkg="" driver_probe_status=2
+  if _can_manage_host_driver; then
+    can_manage_host_driver=true
+    _detect_driver_below_minimum && driver_probe_status=0 || driver_probe_status=$?
+    if [[ $driver_probe_status -eq 1 ]]; then
+      driver_upgrade_pkg="nvidia-driver-${MIN_DRIVER_VERSION}"
+      log "Host driver is below minimum — targeting ${driver_upgrade_pkg}"
+    elif [[ $driver_probe_status -eq 2 ]]; then
+      warn "Could not determine host driver version — falling back to generic NVIDIA upgrade"
     fi
   else
-    warn "NVIDIA driver upgrade failed"
+    warn "Shared-driver container detected — skipping host NVIDIA driver upgrade. On the host: unhold nvidia/libnvidia/cuda packages, install nvidia-driver-${MIN_DRIVER_VERSION} or newer, blacklist nouveau, run update-initramfs -u, and reboot."
+  fi
+
+  if [[ "$can_manage_host_driver" == "true" ]]; then
+    # [NON-FATAL: dpkg] apt will still enforce DPkg::Lock::Timeout.
+    _wait_for_dpkg_lock 60 || warn "dpkg lock not released in time — DPkg::Lock::Timeout will handle"
+
+    if [[ -n "$driver_upgrade_pkg" ]]; then
+      if apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" update -qq 2>>"$LOGFILE" \
+        && apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" install -y -qq \
+          "$driver_upgrade_pkg" 2>>"$LOGFILE"; then
+        log "NVIDIA driver upgrade to ${driver_upgrade_pkg} completed"
+        systemctl restart docker 2>>"$LOGFILE" || service docker restart 2>>"$LOGFILE" \
+          || warn "Docker restart failed (non-fatal)"
+        sleep 2
+        if nvidia-smi &>/dev/null; then  # stderr expected: driver reinit
+          detect_nvml_mismatch && post_repair_status=0 || post_repair_status=$?
+          if [[ $post_repair_status -eq 0 ]]; then
+            _reenable_nvidia_persistence
+            _pin_nvidia_packages
+            return 0
+          elif [[ $post_repair_status -eq 1 ]]; then
+            warn "NVIDIA driver mismatch persists after upgrade"
+          else
+            warn "Unable to verify NVIDIA driver/library mismatch after upgrade"
+          fi
+        else
+          warn "nvidia-smi still fails after upgrade"
+        fi
+      else
+        warn "NVIDIA driver upgrade to ${driver_upgrade_pkg} failed"
+      fi
+    elif apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" update -qq 2>>"$LOGFILE" \
+      && apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" install -y -qq \
+        --only-upgrade "nvidia-driver-*" 2>>"$LOGFILE"; then
+      log "NVIDIA driver upgrade completed"
+      systemctl restart docker 2>>"$LOGFILE" || service docker restart 2>>"$LOGFILE" \
+        || warn "Docker restart failed (non-fatal)"
+      sleep 2
+      if nvidia-smi &>/dev/null; then  # stderr expected: driver reinit
+        detect_nvml_mismatch && post_repair_status=0 || post_repair_status=$?
+        if [[ $post_repair_status -eq 0 ]]; then
+          _reenable_nvidia_persistence
+          _pin_nvidia_packages
+          return 0
+        elif [[ $post_repair_status -eq 1 ]]; then
+          warn "NVIDIA driver mismatch persists after upgrade"
+        else
+          warn "Unable to verify NVIDIA driver/library mismatch after upgrade"
+        fi
+      else
+        warn "nvidia-smi still fails after upgrade"
+      fi
+    else
+      warn "NVIDIA driver upgrade failed"
+    fi
   fi
 
   warn "All NVML mismatch repair strategies exhausted — GPU may not work"

@@ -6,6 +6,8 @@ P2P_GPU_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOGFILE="$(mktemp -t p2p-gpu-nvml.XXXXXX)"
 STUB_DIR="$(mktemp -d -t p2p-gpu-stub.XXXXXX)"
 APT_CALLED_FILE="${STUB_DIR}/apt-called"
+# shellcheck disable=SC2034
+MIN_DRIVER_VERSION=570
 trap 'rm -f "$LOGFILE"; rm -rf "$STUB_DIR"' EXIT
 
 # Minimal logging functions expected by environment.sh
@@ -13,6 +15,7 @@ log() { :; }
 warn() { :; }
 err() { :; }
 step() { :; }
+_wait_for_dpkg_lock() { :; }
 
 assert_no_apt_call() {
   if [[ -e "$APT_CALLED_FILE" ]]; then

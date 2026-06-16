@@ -27,6 +27,10 @@ done
 # ss is part of iproute2
 command -v ss &>/dev/null || pkgs_needed+=("iproute2")
 
+if [[ "${GPU_BACKEND:-}" == "nvidia" ]] && _can_manage_host_driver; then
+  pkgs_needed+=(dkms build-essential "linux-headers-$(uname -r)")
+fi
+
 # Vast.ai instances often ship with stale PPAs (e.g. graphics-drivers) that
 # timeout during apt-get update and cause hard failures under set -e.
 # The GPU driver is already installed — these PPAs are not needed.

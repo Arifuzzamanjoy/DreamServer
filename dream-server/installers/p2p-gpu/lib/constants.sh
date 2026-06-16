@@ -35,6 +35,8 @@ readonly REPO_URL="https://github.com/Light-Heart-Labs/DreamServer.git"
 readonly REPO_BRANCH="main"
 readonly MIN_DISK_GB=40
 readonly MIN_VRAM_MB=8000
+# llama-server requires >=570; this gates host-driver repair and upgrade logic.
+readonly MIN_DRIVER_VERSION="${MIN_DRIVER_VERSION:-570}"
 readonly INSTALLER_TIMEOUT="${INSTALLER_TIMEOUT:-600}"
 readonly MULTIGPU_MIN_GPUS=2
 

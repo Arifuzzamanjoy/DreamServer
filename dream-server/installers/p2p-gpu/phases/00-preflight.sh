@@ -101,6 +101,31 @@ _verify_nvidia_passthrough() {
     docker run --rm --gpus all "${gpu_test_image}" nvidia-smi &>/dev/null; then
     log "NVIDIA Docker passthrough verified"
 
+    # ── [FIX: host-driver-provisioning] Early NVIDIA host-driver detections ──
+    if _detect_nouveau_bound; then
+      warn "nouveau is bound to the NVIDIA GPU — host driver remediation is required"
+      if _can_manage_host_driver; then
+        _blacklist_nouveau
+      else
+        warn "Shared-driver container detected — cannot blacklist nouveau here"
+        warn "Manual fix on the host:"
+        warn "  printf 'blacklist nouveau\noptions nouveau modeset=0\n' > /etc/modprobe.d/blacklist-nouveau.conf"
+        warn "  update-initramfs -u"
+        warn "  reboot"
+      fi
+    fi
+
+    if _detect_nvidia_smi_missing; then
+      warn "NVIDIA GPU is present but nvidia-smi is missing from PATH — the driver userspace looks partially removed"
+      warn "Run 'bash setup.sh --fix' on the host to repair the NVIDIA userspace."
+    fi
+
+    local driver_status=2
+    _detect_driver_below_minimum && driver_status=0 || driver_status=$?
+    if [[ $driver_status -eq 1 ]]; then
+      warn "Host NVIDIA driver is below ${MIN_DRIVER_VERSION} (llama-server needs >=${MIN_DRIVER_VERSION}) — bash setup.sh --fix will attempt an upgrade when the host is self-managed"
+    fi
+
     # ── [FIX: nvml-mismatch] Detect and repair driver/library mismatch ────────
     log "Checking for NVIDIA driver/library version misalignment..."
     if detect_nvml_mismatch "${gpu_test_image}"; then

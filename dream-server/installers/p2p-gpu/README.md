@@ -4,7 +4,7 @@ Production-hardened deployment of the full DreamServer AI stack on rented GPU in
 
 **One command. All bundled services. Any NVIDIA/AMD GPU or CPU-only instance.**
 
-Automatically handles 28 known P2P GPU environment issues: root user rejection, Docker socket permissions, CPU limit overflow, /tmp permissions, NVIDIA toolkit setup, NVML driver/library mismatch, multi-GPU support, SSH tunneling, package manager locks, and more. Includes built-in recovery commands, health checks, and model auto-swap capabilities.
+Automatically handles 33 known P2P GPU environment issues: root user rejection, Docker socket permissions, CPU limit overflow, /tmp permissions, NVIDIA toolkit setup, NVML driver/library mismatch, multi-GPU support, SSH tunneling, package manager locks, and more. Includes built-in recovery commands, health checks, and model auto-swap capabilities.
 
 ## What It Solves
 
@@ -49,7 +49,7 @@ On Windows, use the all-port tunnel from `--info` (it uses a safe local alias
 
 ## What It Does
 
-The setup script handles 28 known issues with P2P GPU environments:
+The setup script handles 33 known issues with P2P GPU environments:
 
 | # | Issue | Fix |
 |---|-------|-----|
@@ -81,6 +81,11 @@ The setup script handles 28 known issues with P2P GPU environments:
 | 26 | AMD GPU support | ROCm detection + compose overlay |
 | 27 | CPU-only fallback | Works without any GPU |
 | 28 | NVML driver/library mismatch | Detect + targeted repair (regression-tested) |
+| 29 | nouveau bound at boot | Blacklist nouveau + refresh initramfs on self-managed hosts |
+| 30 | Missing NVIDIA build toolchain | Auto-installs dkms, build-essential, and matching headers |
+| 31 | Held driver packages blocking upgrade | Unholds held nvidia/libnvidia/cuda packages before repair |
+| 32 | Host driver below required minimum | Upgrades toward nvidia-driver-570+ when the host is self-managed |
+| 33 | nvidia-smi missing after partial removal | Detects partial removal and points to `bash setup.sh --fix` |
 
 ## Architecture
 
@@ -120,7 +125,8 @@ p2p-gpu/
 │   ├── fix.sh                  # Apply fixes without reinstall
 │   └── info.sh                 # Show connection URLs
 └── tests/
-    └── test-nvml-mismatch.sh   # NVML mismatch repair-path regression (run in CI)
+    ├── test-driver-provisioning.sh  # Host driver provisioning regression (run in CI)
+    └── test-nvml-mismatch.sh        # NVML mismatch repair-path regression (run in CI)
 ```
 
 ## Design Principles
@@ -133,6 +139,8 @@ Aligned with DreamServer's [CLAUDE.md](../../../CLAUDE.md):
 - **Manifest-driven** — services are discovered from extension manifests, never a hardcoded list.
 - **PID-file process tracking** — background jobs (model downloads, swap watcher, tunnels) are tracked by PID file under `/var/run/dreamserver-p2p-gpu/` and stopped by PID.
 - **ACL-primary permissions** — shared-data directories use setgid + POSIX ACLs as their only sharing mechanism. Failures on those paths abort the install (`exit 1`) rather than degrading to world-writable permissions; per-extension ACLs are applied independently so one extension's failure doesn't block the rest.
+
+Driver remediation that blacklists nouveau, unholds NVIDIA packages, or upgrades the host driver only runs when the installer can manage the host driver. Shared-driver containers get warnings and manual host steps instead.
 
 ## Commands
 
