@@ -320,9 +320,9 @@ class TestUserExtensionStatus:
                 "name": "My Extension",
             }
         }
-        
+
         mock_result = ServiceStatus(id="my-ext", name="My Extension", status=mock_status, port=10200, external_port=10200)
-        
+
         # Test /api/extensions/catalog
         with patch("helpers.get_cached_services", return_value=None):
             with patch("user_extensions.get_user_services_cached", return_value=user_services):
