@@ -141,8 +141,20 @@ _verify_nvidia_passthrough() {
       curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
         | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
         | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null
+      # Cloud images — and our own _pin_nvidia_packages() (apt-mark hold on libnvidia*,
+      # which matches libnvidia-container1) — hold the toolkit deps, so a plain install
+      # aborts with "held broken packages". Allow held packages to change and name the
+      # deps explicitly so apt doesn't stall on version resolution.
       apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" update -qq 2>>"$LOGFILE" \
-        && apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" install -y -qq nvidia-container-toolkit 2>>"$LOGFILE"
+        || warn "apt update failed (non-fatal) — proceeding with cached package lists"
+      if ! apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" install -y -qq \
+             --allow-change-held-packages \
+             libnvidia-container1 libnvidia-container-tools \
+             nvidia-container-toolkit-base nvidia-container-toolkit 2>>"$LOGFILE"; then
+        # [NON-FATAL: apt] Fallback for apt versions without --allow-change-held-packages.
+        apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-120}" install -y -qq nvidia-container-toolkit 2>>"$LOGFILE" \
+          || warn "nvidia-container-toolkit install failed (non-fatal) — GPU passthrough may be unavailable"
+      fi
       # [NON-FATAL: nvidia-ctk] Toolkit may already be configured or unavailable.
       nvidia-ctk runtime configure --runtime=docker 2>>"$LOGFILE" || warn "nvidia-ctk configure failed (non-fatal)"
       # [NON-FATAL: docker] Docker may not be managed by systemctl on Vast.ai.

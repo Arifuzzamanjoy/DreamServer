@@ -35,8 +35,15 @@ installer_pid=""
 # we let the installer auto-detect rather than passing a wrong tier.
 installer_tier_arg=""
 if [[ "$GPU_BACKEND" == "nvidia" && "${GPU_VRAM:-0}" -gt 0 ]]; then
-  if   [[ "$GPU_VRAM" -ge 40000 ]]; then installer_tier_arg="--tier 4"
+  if   [[ "$GPU_VRAM" -ge 90000 ]]; then installer_tier_arg="--tier NV_ULTRA"
+  elif [[ "$GPU_VRAM" -ge 40000 ]]; then installer_tier_arg="--tier 4"
   elif [[ "$GPU_VRAM" -ge 20000 ]]; then installer_tier_arg="--tier 3"
+  elif [[ "$GPU_VRAM" -ge 12000 ]]; then installer_tier_arg="--tier 2"
+  else                                   installer_tier_arg="--tier 1"
+  fi
+  log "Passing ${installer_tier_arg} to installer (GPU_VRAM=${GPU_VRAM} MiB)"
+elif [[ "$GPU_BACKEND" == "amd" && "${GPU_VRAM:-0}" -gt 0 ]]; then
+  if   [[ "$GPU_VRAM" -ge 20000 ]]; then installer_tier_arg="--tier 3"
   elif [[ "$GPU_VRAM" -ge 12000 ]]; then installer_tier_arg="--tier 2"
   else                                   installer_tier_arg="--tier 1"
   fi
