@@ -27,6 +27,15 @@ cmd_resume() {
   local gpu_backend="$GPU_BACKEND"
 
   apply_post_install_fixes "$ds_dir" "$gpu_backend"
+  
+  # Apply Vast.ai specific quirks on resume as well since they may need to be re-evaluated
+  # or might have been skipped during the initial install if it crashed
+  if [[ -f "${SCRIPT_DIR}/phases/08-vastai-quirks.sh" ]]; then
+    # We need DS_DIR and DREAM_USER for phase 08
+    export DS_DIR="$ds_dir"
+    # DREAM_USER is readonly in constants.sh, so we don't need to export it if constants.sh is already sourced
+    source "${SCRIPT_DIR}/phases/08-vastai-quirks.sh"
+  fi
   if [[ "${GPU_COUNT:-0}" -ge "${MULTIGPU_MIN_GPUS:-2}" ]]; then
     enumerate_gpus
     run_gpu_assignment "$ds_dir" "${ds_dir}/.env"

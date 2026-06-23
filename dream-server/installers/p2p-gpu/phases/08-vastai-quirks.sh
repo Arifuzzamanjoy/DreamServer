@@ -57,29 +57,22 @@ if [[ "${shm_size_kb:-0}" -lt 1048576 ]]; then
 fi
 
 # ── Docker TLS Proxy Interception Workaround ───────────────────────────────
-if curl -I https://ghcr.io/v2/ 2>&1 | grep -q "unable to get local issuer certificate\|certificate signed by unknown authority\|certificate problem"; then
-  log "Vast.ai TLS proxy interception detected — applying insecure-registries workaround"
+if { curl -I https://ghcr.io/v2/ 2>&1 || curl -I https://registry-1.docker.io/v2/ 2>&1 || true; } | grep -q "unable to get local issuer certificate\|certificate signed by unknown authority\|certificate problem"; then
+  log "Vast.ai TLS proxy interception detected — adding interceptor CA to system store"
   
-  if command -v docker &>/dev/null && [[ -f /etc/docker/daemon.json ]]; then
-    if ! command -v jq &>/dev/null; then
-      apt-get update && apt-get install -y jq >/dev/null || true
-    fi
-    
-    if command -v jq &>/dev/null; then
-      # Use jq to append insecure-registries array and ensure unique entries
-      jq '."insecure-registries" = (."insecure-registries" // []) + ["ghcr.io", "docker.io", "registry-1.docker.io", "quay.io", "nvcr.io", "lscr.io", "cr.weaviate.io"] | ."insecure-registries" |= unique' /etc/docker/daemon.json > /tmp/daemon.json.tmp
-      mv /tmp/daemon.json.tmp /etc/docker/daemon.json
-      
-      # Restart docker safely
-      if command -v systemctl &>/dev/null && systemctl is-active docker >/dev/null 2>&1; then
-        systemctl restart docker || warn "Failed to restart docker service"
-      elif command -v service &>/dev/null; then
-        service docker restart || warn "Failed to restart docker service"
-      fi
-      sleep 3
-      log "Docker restarted with insecure-registries to bypass TLS interception"
-    fi
+  # Fetch the proxy's root CA certificate and add it to the local trust store
+  # This is much more reliable than using insecure-registries which Docker sometimes ignores
+  echo -n | openssl s_client -connect registry-1.docker.io:443 -showcerts 2>/dev/null | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' > /usr/local/share/ca-certificates/vastai-proxy.crt
+  update-ca-certificates >/dev/null 2>&1
+  
+  # Restart docker safely
+  if command -v systemctl &>/dev/null && systemctl is-active docker >/dev/null 2>&1; then
+    systemctl restart docker || warn "Failed to restart docker service"
+  elif command -v service &>/dev/null; then
+    service docker restart || warn "Failed to restart docker service"
   fi
+  sleep 3
+  log "Docker restarted with updated CA certificates to bypass TLS interception"
 fi
 
 # ── Pre-pull Docker images ─────────────────────────────────────────────────

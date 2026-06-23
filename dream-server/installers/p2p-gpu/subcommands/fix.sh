@@ -58,6 +58,13 @@ set -euo pipefail
   fi
 
   apply_post_install_fixes "$ds_dir" "$gpu_backend"
+  
+  # Apply Vast.ai specific quirks on fix
+  if [[ -f "${SCRIPT_DIR}/phases/08-vastai-quirks.sh" ]]; then
+    export DS_DIR="$ds_dir"
+    # DREAM_USER is readonly in constants.sh
+    source "${SCRIPT_DIR}/phases/08-vastai-quirks.sh"
+  fi
   if [[ "${GPU_COUNT:-0}" -ge "${MULTIGPU_MIN_GPUS:-2}" ]]; then
     enumerate_gpus
     run_gpu_assignment "$ds_dir" "${ds_dir}/.env"
