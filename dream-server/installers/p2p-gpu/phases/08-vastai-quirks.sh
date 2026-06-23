@@ -56,6 +56,32 @@ if [[ "${shm_size_kb:-0}" -lt 1048576 ]]; then
   mount -o remount,size=4G /dev/shm || warn "/dev/shm remount failed (non-fatal)"
 fi
 
+# ── Docker TLS Proxy Interception Workaround ───────────────────────────────
+if curl -I https://ghcr.io/v2/ 2>&1 | grep -q "unable to get local issuer certificate\|certificate signed by unknown authority\|certificate problem"; then
+  log "Vast.ai TLS proxy interception detected — applying insecure-registries workaround"
+  
+  if command -v docker &>/dev/null && [[ -f /etc/docker/daemon.json ]]; then
+    if ! command -v jq &>/dev/null; then
+      apt-get update && apt-get install -y jq >/dev/null || true
+    fi
+    
+    if command -v jq &>/dev/null; then
+      # Use jq to append insecure-registries array and ensure unique entries
+      jq '."insecure-registries" = (."insecure-registries" // []) + ["ghcr.io", "docker.io", "registry-1.docker.io", "quay.io", "nvcr.io", "lscr.io", "cr.weaviate.io"] | ."insecure-registries" |= unique' /etc/docker/daemon.json > /tmp/daemon.json.tmp
+      mv /tmp/daemon.json.tmp /etc/docker/daemon.json
+      
+      # Restart docker safely
+      if command -v systemctl &>/dev/null && systemctl is-active docker >/dev/null 2>&1; then
+        systemctl restart docker || warn "Failed to restart docker service"
+      elif command -v service &>/dev/null; then
+        service docker restart || warn "Failed to restart docker service"
+      fi
+      sleep 3
+      log "Docker restarted with insecure-registries to bypass TLS interception"
+    fi
+  fi
+fi
+
 # ── Pre-pull Docker images ─────────────────────────────────────────────────
 prepull_docker_images "$DS_DIR"
 
