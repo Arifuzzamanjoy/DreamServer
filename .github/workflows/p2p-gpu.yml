@@ -4,12 +4,12 @@ on:
   push:
     branches: [main]
     paths:
-      - "dream-server/installers/p2p-gpu/**"
+      - "ods/installers/p2p-gpu/**"
       - ".github/workflows/p2p-gpu.yml"
   pull_request:
     branches: [main]
     paths:
-      - "dream-server/installers/p2p-gpu/**"
+      - "ods/installers/p2p-gpu/**"
       - ".github/workflows/p2p-gpu.yml"
 
 permissions:
@@ -24,9 +24,9 @@ jobs:
 
       - name: Bash syntax check (p2p-gpu)
         run: |
-          shfiles=$(find dream-server/installers/p2p-gpu -name '*.sh' -type f)
+          shfiles=$(find ods/installers/p2p-gpu -name '*.sh' -type f)
           if [ -z "$shfiles" ]; then
-            echo "No .sh files found under dream-server/installers/p2p-gpu"
+            echo "No .sh files found under ods/installers/p2p-gpu"
             exit 0
           fi
           echo "$shfiles" | xargs bash -n
@@ -34,4 +34,4 @@ jobs:
       - name: NVML mismatch regression
         run: |
           # Live Vast.ai + GPU validation is performed manually outside CI.
-          bash dream-server/installers/p2p-gpu/tests/test-nvml-mismatch.sh
+          bash ods/installers/p2p-gpu/tests/test-nvml-mismatch.sh
