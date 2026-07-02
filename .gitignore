@@ -69,3 +69,5 @@ ods/.cache/
 archive/
 .claude/
 !.claude/commands/
+fix.py
+script.py
