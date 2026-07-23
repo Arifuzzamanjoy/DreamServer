@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-24T03:20:28Z",
+  "generated_at": "2026-07-23T11:35:24Z",
   "schema_version": "1.0.0",
   "extensions": [
     {
@@ -2009,6 +2009,42 @@
           ],
           "setup_time": "~1 minute",
           "priority": 10
+        }
+      ]
+    },
+    {
+      "id": "reranker",
+      "name": "TEI Reranker",
+      "description": "Cross-encoder reranker (Text Embeddings Inference) that reorders RAG search results for higher retrieval accuracy.",
+      "category": "optional",
+      "gpu_backends": [
+        "all"
+      ],
+      "compose_file": "compose.yaml",
+      "depends_on": [],
+      "port": 80,
+      "external_port_default": 8091,
+      "health_endpoint": "/health",
+      "env_vars": [],
+      "tags": [],
+      "features": [
+        {
+          "id": "rag-reranking",
+          "name": "RAG Reranking",
+          "description": "Cross-encoder reranking to improve RAG retrieval quality",
+          "icon": "ListFilter",
+          "category": "data",
+          "requirements": {
+            "services": [
+              "reranker"
+            ],
+            "vram_gb": 0
+          },
+          "enabled_services_all": [
+            "reranker"
+          ],
+          "setup_time": "~1 minute",
+          "priority": 8
         }
       ]
     },

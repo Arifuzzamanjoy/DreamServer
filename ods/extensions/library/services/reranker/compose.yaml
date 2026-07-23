@@ -1,0 +1,32 @@
+services:
+  reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.1
+    platform: linux/amd64  # TEI has no arm64 image -- Rosetta 2 on Apple Silicon
+    container_name: ods-reranker
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${RERANKER_PORT:-8091}:80"
+    environment:
+      - MODEL_ID=${RERANKER_MODEL:-BAAI/bge-reranker-base}
+      - HF_HUB_DOWNLOAD_TIMEOUT=${HF_HUB_DOWNLOAD_TIMEOUT:-120}
+    volumes:
+      - ./data/reranker:/data
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: ${RERANKER_MEMORY_LIMIT:-3G}
+          cpus: '2.0'
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:80/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+    networks:
+      - ods-network
+
+networks:
+  ods-network:
+    external: true
