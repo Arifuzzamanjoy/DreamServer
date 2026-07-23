@@ -18,6 +18,7 @@ matches the work in front of them.
 
 | I want to... | Read this first | Then use |
 |--------------|-----------------|----------|
+| Run on a low-VRAM or low-RAM machine | [LOW-VRAM-TUNING.md](LOW-VRAM-TUNING.md) | [HARDWARE-GUIDE.md](HARDWARE-GUIDE.md), [PROFILES.md](PROFILES.md) |
 | Install the default path | [../QUICKSTART.md](../QUICKSTART.md) | [INSTALLER_TRUST.md](INSTALLER_TRUST.md), [SUPPORT-MATRIX.md](SUPPORT-MATRIX.md), [POST-INSTALL-CHECKLIST.md](POST-INSTALL-CHECKLIST.md) |
 | Install on Windows | [WINDOWS-QUICKSTART.md](WINDOWS-QUICKSTART.md) | [WINDOWS-INSTALL-WALKTHROUGH.md](WINDOWS-INSTALL-WALKTHROUGH.md), [WINDOWS-WSL2-GPU-GUIDE.md](WINDOWS-WSL2-GPU-GUIDE.md) |
 | Install on Apple Silicon | [MACOS-QUICKSTART.md](MACOS-QUICKSTART.md) | [MODEL-MANAGEMENT.md](MODEL-MANAGEMENT.md), [TROUBLESHOOTING.md](TROUBLESHOOTING.md) |
