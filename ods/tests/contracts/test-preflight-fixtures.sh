@@ -75,6 +75,26 @@ scripts/preflight-engine.sh \
 blockers="$(json_summary_blockers "$tmpdir/macos-mvp-good.json")"
 assert_eq "$blockers" "0" "macos-mvp-good blockers"
 
+echo "[contract] preflight fixture: linux-intel-arc-good"
+scripts/preflight-engine.sh \
+  --report "$tmpdir/linux-intel-arc-good.json" \
+  --tier T2 \
+  --ram-gb 32 \
+  --disk-gb 120 \
+  --gpu-backend intel \
+  --gpu-vram-mb 16384 \
+  --gpu-name "Intel Arc A770" \
+  --platform-id linux \
+  --compose-overlays docker-compose.base.yml,docker-compose.intel.yml \
+  --script-dir "$ROOT_DIR" \
+  --env >/dev/null
+blockers="$(json_summary_blockers "$tmpdir/linux-intel-arc-good.json")"
+assert_eq "$blockers" "0" "linux-intel-arc-good blockers"
+if grep -q "Unknown backend" "$tmpdir/linux-intel-arc-good.json"; then
+  echo "[FAIL] intel backend misclassified as Unknown backend"
+  exit 1
+fi
+
 echo "[contract] preflight fixture: disk-blocker"
 scripts/preflight-engine.sh \
   --report "$tmpdir/disk-blocker.json" \

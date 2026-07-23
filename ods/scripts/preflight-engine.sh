@@ -308,6 +308,21 @@ elif gpu_backend == "cpu":
             "CPU fallback selected.",
             "Install/verify GPU drivers for best performance or continue with small models.",
         )
+elif gpu_backend == "intel":
+    if gpu_name.strip().lower() in {"none", ""} or gpu_vram_mb <= 0:
+        add_check(
+            "gpu-vram",
+            "warn",
+            "Intel Arc backend selected but no Intel GPU VRAM was detected.",
+            "Install intel-level-zero-gpu + level-zero, or use the CPU path.",
+        )
+    else:
+        add_check(
+            "gpu-backend",
+            "warn",
+            f"Intel Arc backend selected ({gpu_name}, {gpu_vram_mb}MB VRAM, SYCL — experimental path).",
+            "Verify the oneAPI Level Zero runtime on the host; expect experimental support.",
+        )
 else:
     add_check(
         "gpu-backend",
