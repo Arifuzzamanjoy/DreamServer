@@ -128,7 +128,7 @@ main() {
   # ── Full install ──────────────────────────────────────────────────────
   echo ""
   echo -e "${CYAN}${BOLD}  ODS — Vast.ai Setup v${VASTAI_VERSION}${NC}"
-  echo -e "${DIM}  https://github.com/Light-Heart-Labs/ODS${NC}"
+  echo -e "${DIM}  https://github.com/Osmantic/ODS${NC}"
   echo ""
 
   setup_cleanup_trap
@@ -148,7 +148,7 @@ main() {
     echo "  1.  Detect GPU and validate system requirements"
     echo "  2.  Install dependencies (sudo, git, curl, jq, aria2, etc.)"
     echo "  3.  Create 'dream' user with Docker access"
-    echo "  4.  Clone ODS from ${REPO_URL:-Light-Heart-Labs/ODS}"
+    echo "  4.  Clone ODS from ${REPO_URL:-Osmantic/ODS}"
     echo "  5.  Run ODS installer (non-interactive, 600s timeout)"
     echo "  6.  Apply post-install fixes (permissions, env defaults)"
     echo "  7.  Download/verify GGUF model for llama-server"

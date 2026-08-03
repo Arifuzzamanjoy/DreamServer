@@ -31,7 +31,7 @@ readonly PIDFILE_DIR="/var/run/ods-p2p-gpu"
 
 readonly ODS_USER="dream"
 readonly ODS_HOME="/home/${ODS_USER}"
-readonly REPO_URL="https://github.com/Light-Heart-Labs/ODS.git"
+readonly REPO_URL="https://github.com/Osmantic/ODS.git"
 readonly REPO_BRANCH="main"
 readonly MIN_DISK_GB=40
 readonly MIN_VRAM_MB=8000
