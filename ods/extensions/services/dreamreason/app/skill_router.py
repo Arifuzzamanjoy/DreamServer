@@ -58,6 +58,8 @@ SKILL_RULES = {
         (2, r"\b(function|def|class|method|API|endpoint)\b"),
         (2, r"\b(debug|refactor|compile|stack ?trace|traceback)\b"),
         (1, r"\b(bug|error|exception)\b"),
+        (2, r"\b(segfault|segmentation fault|core dump|memory leak)\b"),
+        (1, r"\b(program|script|binary|compiler)\b"),
         (1, r"\b(array|list|dict|hash ?map|linked list)\b"),
         (1, r"\b(implement|write|fix)\b.*\b(code|script|program)\b"),
     ],
@@ -66,7 +68,8 @@ SKILL_RULES = {
         (2, r"\bknights? and knaves\b"),
         (1, r"\bif .* then\b"),
         (1, r"\b(deduce|entails?|implies)\b"),
-        (1, r"\b(valid|invalid)\b.*\bargument\b"),
+        (1, r"\b(valid|invalid)\b.*\bargument\b|\bargument\b.*\b(valid|invalid)\b"),
+        (1, r"\bpremises?\b"),
         (1, r"\bpuzzle\b"),
     ],
     "reasoning": [

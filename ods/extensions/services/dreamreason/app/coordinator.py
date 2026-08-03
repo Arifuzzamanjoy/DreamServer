@@ -47,6 +47,9 @@ CONSENSUS_THRESHOLD = float(
     os.environ.get("MESH_CONSENSUS_THRESHOLD", DEFAULT_CONSENSUS_THRESHOLD)
 )
 PEER_TIMEOUT = float(os.environ.get("MESH_PEER_TIMEOUT_SECONDS", "120"))
+# keyword until semantic routing is shown to beat it on a labelled set --
+# see scripts/mesh-bench/compare-routers.py
+MESH_ROUTER = os.environ.get("MESH_ROUTER", "keyword")
 
 app = FastAPI(title="DreamReason Coordinator", version="0.1.0")
 
@@ -78,7 +81,8 @@ def effective_fanout(requested: int | None) -> int:
     return max(1, min(value, FANOUT_HARD_CAP))
 
 
-def peer_models(skills: list, question: str, fanout: int) -> list:
+def peer_models(skills: list, question: str, fanout: int,
+                best: str = None) -> list:
     """LiteLLM model names to query, best skill first. Pure.
 
     Deduplicated: querying one peer twice wastes a fan-out slot and hands the
@@ -86,8 +90,9 @@ def peer_models(skills: list, question: str, fanout: int) -> list:
     peer happened to be duplicated.
     """
     if not skills:
-        return [route(question)]
-    best = select_skill(question, skills)
+        return [route(question)] if best is None else [f"peer-{best}"]
+    if best is None:
+        best = select_skill(question, skills)
     ordered = [best] + [s for s in skills if s != best]
     models = []
     for skill in ordered:
@@ -97,6 +102,20 @@ def peer_models(skills: list, question: str, fanout: int) -> list:
         if len(models) == fanout:
             break
     return models
+
+
+async def resolve_skill(client: httpx.AsyncClient, question: str,
+                       skills: list) -> str:
+    """Pick a skill using whichever router is configured.
+
+    The semantic path is allowed to fail loudly. Falling back to keywords on
+    error would make the two routers indistinguishable in production and would
+    quietly hide a broken TEI or an unseeded Qdrant collection.
+    """
+    if MESH_ROUTER != "semantic":
+        return select_skill(question, skills)
+    from semantic_router import select_skill_semantic
+    return await select_skill_semantic(client, question, skills)
 
 
 async def ask_peer(client: httpx.AsyncClient, model: str, question: str) -> dict:
@@ -166,9 +185,11 @@ async def reason(request: ReasonRequest) -> ReasonResponse:
     not an empty result to paper over.
     """
     fanout = effective_fanout(request.fanout)
-    models = peer_models(request.skills or [], request.question, fanout)
 
     async with httpx.AsyncClient() as client:
+        skills = request.skills or []
+        best = await resolve_skill(client, request.question, skills)
+        models = peer_models(skills, request.question, fanout, best=best)
         results = await asyncio.gather(
             *(ask_peer(client, model, request.question) for model in models)
         )

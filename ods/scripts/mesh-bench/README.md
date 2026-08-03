@@ -96,3 +96,57 @@ Expect latency to stay worse. The open question real weights answer is whether
 judge-based selection across heterogeneous peers recovers enough accuracy to
 justify ~4.6× the tokens — which is exactly the crossover threshold
 "When Agents Disagree" (arXiv 2603.20324) describes.
+
+---
+
+# Routing: keyword vs semantic
+
+`compare-routers.py` scores both routers on `routing-eval.json`, 25 labelled
+prompts across 7 skills.
+
+```bash
+python3 scripts/mesh-bench/compare-routers.py --arms keyword semantic
+```
+
+The semantic arm needs TEI and Qdrant. Seed the capability vectors first:
+
+```bash
+python3 scripts/mesh-seed-capabilities.py \
+    --tei http://localhost:8081 --qdrant http://localhost:6333
+```
+
+| Router | Accuracy | Cost per route |
+|---|---|---|
+| keyword (baseline) | **1.000** (25/25) | **0.047 ms** |
+| semantic (stub embedder) | 0.720 (18/25) | 46.3 ms |
+
+## Read these caveats before drawing a conclusion
+
+**The semantic number is not a verdict on embeddings.** No GPU or TEI model was
+available, so that arm ran against a stub bag-of-words hash embedder. A real
+sentence-embedding model would score far higher. What the run establishes is
+that the wiring, seeding, threshold and comparison harness all work end to end
+— not that embeddings lose.
+
+**The keyword baseline was tuned on this set.** Out of the box it scored 0.920
+(23/25). The eval exposed two genuine rule bugs — a word-order-dependent regex
+that missed "argument valid or invalid", and code rules with no crash
+vocabulary, so "why does this program segfault" routed to `reasoning`. Both
+fixes generalise beyond the eval, but 1.000 is partly in-sample and the honest
+out-of-sample figure is closer to 0.92.
+
+## What does transfer
+
+Even against a stub embedder running on loopback, semantic routing cost
+**46 ms per route against 0.047 ms** — three orders of magnitude. A real
+TEI round trip plus a Qdrant query over the network will not be cheaper.
+
+So the bar is concrete: embeddings must beat a ~0.92–1.00 keyword baseline by
+enough to justify ~1000x the routing latency and two extra services on the
+critical path of every request. That is a high bar, and it is why
+`MESH_ROUTER` defaults to `keyword`.
+
+Where embeddings should win is the case regexes cannot reach: prompts phrased
+with none of the trigger vocabulary, and new skills added without writing
+rules. If that matters for a deployment, run this comparison with a real TEI
+model before switching.
