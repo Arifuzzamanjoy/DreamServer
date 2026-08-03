@@ -18,12 +18,14 @@ All peer traffic goes through LiteLLM, never directly to a peer's llama-server
 """
 
 import asyncio
+import json
 import logging
 import os
 import time
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from aggregator import (
@@ -177,11 +179,13 @@ async def health() -> dict:
     return {"status": "ok", "fanout": MESH_FANOUT, "judge": JUDGE_MODEL}
 
 
-@app.post("/v1/reason", response_model=ReasonResponse)
-async def reason(request: ReasonRequest) -> ReasonResponse:
+async def run_mesh(request: ReasonRequest) -> ReasonResponse:
     """Fan out one question, then select the best answer.
 
-    Returns 502 when no peer answered: an empty candidate pool is a failure,
+    Shared by /v1/reason and the OpenAI-compatible route so both go through
+    exactly the same selection path.
+
+    Raises 502 when no peer answered: an empty candidate pool is a failure,
     not an empty result to paper over.
     """
     fanout = effective_fanout(request.fanout)
@@ -246,3 +250,142 @@ async def reason(request: ReasonRequest) -> ReasonResponse:
         judge_invoked=True,
         total_tokens=tokens,
     )
+
+
+@app.post("/v1/reason", response_model=ReasonResponse)
+async def reason(request: ReasonRequest) -> ReasonResponse:
+    """Native mesh entry point, returning the full selection audit trail."""
+    return await run_mesh(request)
+
+
+# ---------------------------------------------------------------------------
+# OpenAI-compatible surface
+#
+# Without this the mesh is unreachable from any UI: Open WebUI, the dashboard
+# and every other client in the stack speak OpenAI chat-completions to LiteLLM,
+# and /v1/reason is not that shape. Registering this route as a model named
+# MESH_MODEL_NAME in mesh.yaml puts "mesh" in the model dropdown, so selecting
+# it routes a normal chat turn through fan-out and judge selection.
+# ---------------------------------------------------------------------------
+
+MESH_MODEL_NAME = os.environ.get("MESH_MODEL_NAME", "mesh")
+# Peer skills advertised to the router when a client cannot say (a chat UI
+# never will). Comma-separated.
+DEFAULT_SKILLS = [
+    s for s in os.environ.get("MESH_DEFAULT_SKILLS", "").split(",") if s
+]
+# Chat UIs show only the message, so the selection rationale would be lost.
+SHOW_RATIONALE = os.environ.get("MESH_SHOW_RATIONALE", "false").lower() == "true"
+
+
+def last_user_message(messages: list) -> str:
+    """Text of the most recent user turn. Pure.
+
+    Raises when there is none: answering the system prompt would look like a
+    working mesh returning nonsense.
+    """
+    for message in reversed(messages or []):
+        if message.get("role") == "user":
+            content = message.get("content")
+            if isinstance(content, str):
+                return content
+            # Multimodal content arrives as a list of parts.
+            if isinstance(content, list):
+                return " ".join(
+                    part.get("text", "") for part in content
+                    if isinstance(part, dict)
+                )
+    raise HTTPException(status_code=400, detail="no user message in request")
+
+
+def to_openai_response(result: ReasonResponse, model: str) -> dict:
+    """Map a mesh result onto an OpenAI chat.completion. Pure."""
+    content = result.answer
+    if SHOW_RATIONALE:
+        content = f"{content}\n\n---\n*{result.selected_peer}* — {result.justification}"
+    return {
+        "id": f"chatcmpl-mesh-{int(time.time() * 1000)}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": content},
+            "finish_reason": "stop",
+        }],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0,
+                  "total_tokens": result.total_tokens},
+        # Non-standard; clients ignore unknown keys, but it keeps the audit
+        # trail visible to anything that looks.
+        "ods_mesh": {
+            "selected_peer": result.selected_peer,
+            "selection": result.selection,
+            "justification": result.justification,
+            "agreement": result.agreement,
+            "judge_invoked": result.judge_invoked,
+        },
+    }
+
+
+def to_sse_stream(payload: dict) -> str:
+    """One-chunk SSE body for clients that asked to stream. Pure.
+
+    The mesh cannot stream honestly: nothing can be emitted until every peer
+    has answered and the judge has chosen. Sending the finished answer as a
+    single chunk is truthful, where faking token-by-token output would not be.
+    """
+    content = payload["choices"][0]["message"]["content"]
+    chunk = {
+        "id": payload["id"], "object": "chat.completion.chunk",
+        "created": payload["created"], "model": payload["model"],
+        "choices": [{"index": 0, "delta": {"role": "assistant",
+                                           "content": content},
+                     "finish_reason": None}],
+    }
+    done = {
+        "id": payload["id"], "object": "chat.completion.chunk",
+        "created": payload["created"], "model": payload["model"],
+        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+    }
+    return (f"data: {json.dumps(chunk)}\n\n"
+            f"data: {json.dumps(done)}\n\n"
+            "data: [DONE]\n\n")
+
+
+@app.get("/v1/models")
+async def list_models() -> dict:
+    """Advertise the mesh as one model, so clients can discover it."""
+    return {"object": "list", "data": [{
+        "id": MESH_MODEL_NAME, "object": "model",
+        "created": int(time.time()), "owned_by": "ods-dreamreason",
+    }]}
+
+
+@app.post("/v1/chat/completions")
+async def chat_completions(body: dict):
+    """OpenAI-compatible entry point onto the mesh.
+
+    Guards against a routing loop: if this route is reached asking for a
+    peer-* model, LiteLLM has been misconfigured to point a peer back at the
+    coordinator, and fanning out again would recurse.
+    """
+    model = body.get("model") or MESH_MODEL_NAME
+    if str(model).startswith("peer-"):
+        raise HTTPException(
+            status_code=400,
+            detail=(f"model {model!r} routes back into the coordinator; "
+                    "peer-* models must point at peers, not at dreamreason"),
+        )
+
+    question = last_user_message(body.get("messages"))
+    result = await run_mesh(ReasonRequest(
+        question=question,
+        fanout=body.get("fanout"),
+        skills=body.get("skills") or DEFAULT_SKILLS or None,
+    ))
+    payload = to_openai_response(result, str(model))
+
+    if body.get("stream"):
+        return StreamingResponse(iter([to_sse_stream(payload)]),
+                                 media_type="text/event-stream")
+    return payload

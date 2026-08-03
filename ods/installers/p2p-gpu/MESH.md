@@ -94,6 +94,20 @@ curl -s -X POST localhost:9200/v1/reason \
 A good response names the peer that won and why, and the answer is that peer's
 answer verbatim — the aggregator selects, it never blends.
 
+## Using it from the UI
+
+After regenerating `mesh.yaml`, Open WebUI's model dropdown gains a **`mesh`**
+entry alongside the individual `peer-*` models. Picking `mesh` sends the turn
+through fan-out and judge selection; picking a `peer-*` model talks to that one
+peer directly, with no selection.
+
+Set `MESH_SHOW_RATIONALE=true` to append the winning peer and the reason to
+each reply — useful while validating, noisy afterwards.
+
+The full audit trail is always present on the `ods_mesh` field of the response
+for anything that inspects it, and `POST /v1/reason` on port 9200 returns it
+directly.
+
 ## Benchmark
 
 ```bash

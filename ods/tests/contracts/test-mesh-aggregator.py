@@ -148,6 +148,54 @@ def test_fixed_decomposition_is_three_way():
     check("parts are distinct framings", len(set(parts)) == 3)
 
 
+def test_openai_surface_exists():
+    """Without this the mesh is unreachable from Open WebUI and every other
+    client in the stack, since they all speak OpenAI chat-completions."""
+    import coordinator  # noqa: E402
+    routes = {r.path for r in coordinator.app.routes}
+    check("chat-completions route exists", "/v1/chat/completions" in routes)
+    check("models route exists", "/v1/models" in routes)
+    check("native reason route kept", "/v1/reason" in routes)
+
+
+def test_extracts_the_user_turn_not_the_system_prompt():
+    import coordinator  # noqa: E402
+    text = coordinator.last_user_message([
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "reply"},
+        {"role": "user", "content": "most recent"},
+    ])
+    check("takes the latest user turn", text == "most recent")
+
+    parts = coordinator.last_user_message([
+        {"role": "user", "content": [{"type": "text", "text": "multimodal"}]},
+    ])
+    check("handles multimodal content parts", "multimodal" in parts)
+
+
+def test_answer_is_returned_verbatim_by_default():
+    # Selection, not synthesis -- the UI must show the peer's answer as-is.
+    import coordinator  # noqa: E402
+    from models_stub import result
+    payload = coordinator.to_openai_response(result(), "mesh")
+    check("content is the selected answer unmodified",
+          payload["choices"][0]["message"]["content"] == "the answer")
+    check("audit trail attached", payload["ods_mesh"]["selected_peer"] == "peer-code")
+    check("openai object type", payload["object"] == "chat.completion")
+
+
+def test_stream_is_one_honest_chunk():
+    # Nothing can be emitted until every peer answers and the judge chooses,
+    # so faking token-by-token output would be a lie.
+    import coordinator  # noqa: E402
+    from models_stub import result
+    body = coordinator.to_sse_stream(coordinator.to_openai_response(result(), "mesh"))
+    check("sse chunks present", body.count("data: ") == 3)
+    check("terminates with DONE", body.strip().endswith("[DONE]"))
+    check("carries the answer", "the answer" in body)
+
+
 def main():
     print("=== DreamReason aggregator contract ===")
     for name, fn in sorted(globals().items()):

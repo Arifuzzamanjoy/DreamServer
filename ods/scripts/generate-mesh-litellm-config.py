@@ -35,6 +35,8 @@ import yaml
 
 PEER_LITELLM_PORT = 4000
 ELIGIBLE_STATE = "online-idle"
+COORDINATOR_URL = "http://dreamreason:9200/v1"
+MESH_MODEL_NAME = "mesh"
 
 
 def peer_host(peer: dict) -> str:
@@ -82,7 +84,8 @@ def peer_entries(peer: dict, peer_key_env: str) -> list:
     return entries
 
 
-def build_mesh_config(peers: list, local_api_base: str, peer_key_env: str) -> dict:
+def build_mesh_config(peers: list, local_api_base: str, peer_key_env: str,
+                      coordinator_url: str = COORDINATOR_URL) -> dict:
     """Full LiteLLM config for mesh mode. Pure.
 
     Always includes this node's own llama-server. A mesh node runs local
@@ -111,6 +114,20 @@ def build_mesh_config(peers: list, local_api_base: str, peer_key_env: str) -> di
         if peer.get("state") == ELIGIBLE_STATE:
             model_list.extend(peer_entries(peer, peer_key_env))
 
+    # The mesh itself, as one selectable model. Without this entry the
+    # coordinator is unreachable from Open WebUI and every other client in the
+    # stack, because they all speak OpenAI chat-completions to LiteLLM and
+    # none of them know about /v1/reason.
+    model_list.append({
+        "model_name": MESH_MODEL_NAME,
+        "litellm_params": {
+            "model": f"openai/{MESH_MODEL_NAME}",
+            "api_base": coordinator_url,
+            "api_key": "not-needed",
+        },
+        "model_info": {"ods_role": "coordinator"},
+    })
+
     return {
         "model_list": model_list,
         "general_settings": {"master_key": "os.environ/LITELLM_MASTER_KEY"},
@@ -137,6 +154,7 @@ def main() -> int:
     p.add_argument("-o", "--output", required=True)
     p.add_argument("--local-api-base", default="http://llama-server:8080/v1")
     p.add_argument("--peer-key-env", default="os.environ/MESH_PEER_KEY")
+    p.add_argument("--coordinator-url", default=COORDINATOR_URL)
     args = p.parse_args()
 
     if args.peers_json:
@@ -145,7 +163,8 @@ def main() -> int:
     else:
         peers = load_peers(sys.stdin)
 
-    config = build_mesh_config(peers, args.local_api_base, args.peer_key_env)
+    config = build_mesh_config(peers, args.local_api_base, args.peer_key_env,
+                               args.coordinator_url)
     with open(args.output, "w") as fh:
         yaml.dump(config, fh, default_flow_style=False, sort_keys=False)
 

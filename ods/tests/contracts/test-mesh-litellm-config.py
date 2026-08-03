@@ -98,6 +98,16 @@ def test_only_idle_peers_are_eligible():
     check("timed-out peer excluded", "peer-math" not in names)
 
 
+def test_mesh_is_a_selectable_model():
+    """The coordinator must appear in model_list or no UI can reach it."""
+    names = by_name(mesh_cfg.build_mesh_config([], "http://llama-server:8080/v1", "k"))
+    check("mesh model registered", "mesh" in names)
+    check("mesh points at the coordinator",
+          names["mesh"][0]["litellm_params"]["api_base"].endswith(":9200/v1"))
+    check("mesh does not point at a peer",
+          "peer" not in names["mesh"][0]["litellm_params"]["api_base"])
+
+
 def test_local_inference_always_present():
     # A mesh node contributes compute; it is not a thin client.
     names = by_name(mesh_cfg.build_mesh_config([], "http://llama-server:8080/v1", "k"))
