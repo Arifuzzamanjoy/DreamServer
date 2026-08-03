@@ -59,6 +59,22 @@ def test_peers_addressed_at_litellm_port():
               if e["model_name"].startswith("peer-")))
 
 
+def test_remapped_peer_port_is_honoured():
+    """Vast.ai publishes each internal port on a different external one, so a
+    peer's LiteLLM is not necessarily on 4000."""
+    remapped = peer()
+    remapped["litellm_port"] = 41288
+    config = mesh_cfg.build_mesh_config([remapped], "http://llama-server:8080/v1", "k")
+    base = by_name(config)["peer-code"][0]["litellm_params"]["api_base"]
+    check("declared peer port used", base == "http://100.64.0.2:41288/v1")
+
+
+def test_default_port_still_applies_on_a_tailnet():
+    config = mesh_cfg.build_mesh_config([peer()], "http://llama-server:8080/v1", "k")
+    base = by_name(config)["peer-code"][0]["litellm_params"]["api_base"]
+    check("absent peer port defaults to 4000", base.endswith(":4000/v1"))
+
+
 def test_named_by_skill_not_hostname():
     config = mesh_cfg.build_mesh_config(
         [peer(skills=("algebra", "geometry"))], "http://llama-server:8080/v1", "k")

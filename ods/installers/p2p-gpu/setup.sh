@@ -62,6 +62,7 @@ _route_subcommand() {
     --fix|fix)            cmd_fix;      exit 0 ;;
     --info|info)          cmd_info;     exit 0 ;;
     --dry-run)            DRY_RUN=true ;;
+    --mesh)               ODS_MESH=1; export ODS_MESH ;;
     --version)            echo "ods-vastai-setup v${VASTAI_VERSION}"; exit 0 ;;
     --help|-h)            _print_help; exit 0 ;;
     --*)                  err "Unknown option: ${1}"; echo "Run 'bash ${SCRIPT_NAME} --help'"; exit 1 ;;
@@ -82,6 +83,7 @@ _print_help() {
   echo "  --fix         Apply latest fixes without full re-install"
   echo "  --teardown    Stop all services"
   echo "  --dry-run     Preview what would happen without making changes"
+  echo "  --mesh        Join the DreamReason mesh (multi-instance; needs peers)"
   echo "  --help        Show this help"
   echo ""
   echo -e "${BOLD}Common scenarios:${NC}"
@@ -187,6 +189,7 @@ main() {
   source "${SCRIPT_DIR}/phases/09-services.sh"
   source "${SCRIPT_DIR}/phases/10-voice-stack.sh"
   source "${SCRIPT_DIR}/phases/11-access-layer.sh"
+  source "${SCRIPT_DIR}/phases/13-mesh.sh"
   source "${SCRIPT_DIR}/phases/12-summary.sh"
 }
 
