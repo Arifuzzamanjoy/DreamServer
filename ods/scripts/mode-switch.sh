@@ -57,6 +57,16 @@ show_status() {
     echo "  mesh    — Distributed reasoning across local nodes (experimental)"
 }
 
+enable_service() {
+    local service="$1" mode="$2"
+    local compose_file="$SCRIPT_DIR/extensions/services/${service}/compose.yaml"
+    local disabled="${compose_file}.disabled"
+    if [[ -f "$disabled" && ! -f "$compose_file" ]]; then
+        mv "$disabled" "$compose_file" || warn "could not enable ${service} (non-fatal)"
+        success "Auto-enabled ${service} for ${mode} mode"
+    fi
+}
+
 switch_mode() {
     local mode="$1"
 
@@ -81,13 +91,15 @@ switch_mode() {
         env_set "LLM_API_URL" "http://llama-server:8080"
     else
         env_set "LLM_API_URL" "http://litellm:4000"
-        # Auto-enable litellm extension
-        local litellm_cf="$SCRIPT_DIR/extensions/services/litellm/compose.yaml"
-        local litellm_disabled="${litellm_cf}.disabled"
-        if [[ -f "$litellm_disabled" && ! -f "$litellm_cf" ]]; then
-            mv "$litellm_disabled" "$litellm_cf"
-            success "Auto-enabled litellm for $mode mode"
-        fi
+        enable_service "litellm" "$mode"
+    fi
+
+    if [[ "$mode" == "mesh" ]]; then
+        # Hermes must reach peers through the gateway too, not straight at the
+        # local llama-server (ODS-RUNTIME-MESH-HERMES-LOCAL-ROUTE).
+        env_set "HERMES_LLM_BASE_URL" "http://litellm:4000/v1"
+        # The coordinator is what makes mesh mode do anything.
+        enable_service "dreamreason" "$mode"
     fi
 
     success "Switched to $mode mode."
