@@ -24,6 +24,13 @@ class GPUInfo(BaseModel):
     temperature_available: bool = True
 
 
+class GpuIdleStatus(BaseModel):
+    idle: Optional[bool]
+    utilization_percent: int
+    threshold_percent: int
+    backend: str
+
+
 class ServiceStatus(BaseModel):
     id: str
     name: str
