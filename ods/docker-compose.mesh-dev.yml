@@ -1,0 +1,101 @@
+# DreamReason mesh development scaffolding — NOT part of the extension system.
+#
+# Three llama-server instances on one host, standing in for three mesh peers so
+# peer discovery, skill routing, and judge-select aggregation can be exercised
+# without a second machine or Tailscale.
+#
+# This file is deliberately not an extension manifest: it is never merged by
+# scripts/resolve-compose-stack.sh and must be passed explicitly.
+#
+#   docker compose -f docker-compose.mesh-dev.yml up -d
+#
+# Models are read from ./data/models and must already be present. Sizes come
+# from real tier-map resolution (installers/lib/tier-map.sh):
+#   tier 0 -> Qwen3.5-2B-Q4_K_M.gguf (1221 MB)
+#   tier 1 -> Qwen3.5-9B-Q4_K_M.gguf (5760 MB)
+#
+# Peers are named by SKILL rather than hostname. Skill-level routing is what
+# Symbolic-MoE (arXiv 2503.05641) measures at +8.15% over task-level selection.
+#
+# Set MESH_DEV_GPU_LAYERS=0 to run these on CPU.
+
+x-mesh-peer: &mesh-peer
+  image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-b9014}
+  restart: unless-stopped
+  volumes:
+    - ./data/models:/models:z
+  environment:
+    - LLAMA_ARG_FLASH_ATTN=${LLAMA_ARG_FLASH_ATTN:-auto}
+  healthcheck:
+    test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+    interval: 10s
+    timeout: 5s
+    retries: 12
+    start_period: 120s
+
+services:
+  mesh-peer-code:
+    <<: *mesh-peer
+    container_name: ods-mesh-peer-code
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:8081:8080"
+    command:
+      - --model
+      - /models/${MESH_DEV_CODE_GGUF:-Qwen3.5-2B-Q4_K_M.gguf}
+      - --alias
+      - mesh-peer-code
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --n-gpu-layers
+      - "${MESH_DEV_GPU_LAYERS:-999}"
+      - --ctx-size
+      - "${MESH_DEV_CTX_SIZE:-8192}"
+      - --parallel
+      - "1"
+      - --metrics
+
+  mesh-peer-reasoning:
+    <<: *mesh-peer
+    container_name: ods-mesh-peer-reasoning
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:8082:8080"
+    command:
+      - --model
+      - /models/${MESH_DEV_REASONING_GGUF:-Qwen3.5-9B-Q4_K_M.gguf}
+      - --alias
+      - mesh-peer-reasoning
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --n-gpu-layers
+      - "${MESH_DEV_GPU_LAYERS:-999}"
+      - --ctx-size
+      - "${MESH_DEV_CTX_SIZE:-8192}"
+      - --parallel
+      - "1"
+      - --metrics
+
+  mesh-peer-general:
+    <<: *mesh-peer
+    container_name: ods-mesh-peer-general
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:8083:8080"
+    command:
+      - --model
+      - /models/${MESH_DEV_GENERAL_GGUF:-Qwen3.5-2B-Q4_K_M.gguf}
+      - --alias
+      - mesh-peer-general
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --n-gpu-layers
+      - "${MESH_DEV_GPU_LAYERS:-999}"
+      - --ctx-size
+      - "${MESH_DEV_CTX_SIZE:-8192}"
+      - --parallel
+      - "1"
+      - --metrics
