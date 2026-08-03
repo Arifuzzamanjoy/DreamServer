@@ -1,0 +1,36 @@
+{
+  "description": "Labelled prompts for comparing the keyword and semantic skill routers. Phrasings deliberately avoid copying the keyword table's literal terms where a user plausibly would not use them, so the set is not rigged for either router.",
+  "items": [
+    {"prompt": "Write a Python function that reverses a linked list", "skill": "code"},
+    {"prompt": "My script throws a KeyError, how do I debug it", "skill": "code"},
+    {"prompt": "Refactor this class so the method is shorter", "skill": "code"},
+    {"prompt": "Why does this program segfault on large inputs", "skill": "code"},
+    {"prompt": "How do I write a SQL query joining two tables", "skill": "code"},
+
+    {"prompt": "Solve for x: 3x + 7 = 22", "skill": "algebra"},
+    {"prompt": "Factor the polynomial x^2 - 5x + 6", "skill": "algebra"},
+    {"prompt": "Find the roots of this quadratic equation", "skill": "algebra"},
+    {"prompt": "Simplify this algebraic expression with variables", "skill": "algebra"},
+
+    {"prompt": "What is the area of a triangle with base 6 and height 4", "skill": "geometry"},
+    {"prompt": "Compute the circumference of a circle of radius 3", "skill": "geometry"},
+    {"prompt": "Find the angle between two perpendicular lines", "skill": "geometry"},
+    {"prompt": "What is the perimeter of this polygon", "skill": "geometry"},
+
+    {"prompt": "What is 15 percent of 200", "skill": "arithmetic"},
+    {"prompt": "Compute the average of these numbers", "skill": "arithmetic"},
+
+    {"prompt": "Is this argument valid or invalid given the premises", "skill": "logic"},
+    {"prompt": "Solve this knights and knaves puzzle", "skill": "logic"},
+    {"prompt": "What is the contrapositive of this statement", "skill": "logic"},
+
+    {"prompt": "Explain step by step why the sky appears blue", "skill": "reasoning"},
+    {"prompt": "What would happen if interest rates doubled", "skill": "reasoning"},
+    {"prompt": "Justify this conclusion from the evidence given", "skill": "reasoning"},
+
+    {"prompt": "Rewrite this paragraph in a warmer tone", "skill": "writing"},
+    {"prompt": "Summarise this article in three sentences", "skill": "writing"},
+    {"prompt": "Draft a blog post about remote work", "skill": "writing"},
+    {"prompt": "Proofread this essay for style", "skill": "writing"}
+  ]
+}
