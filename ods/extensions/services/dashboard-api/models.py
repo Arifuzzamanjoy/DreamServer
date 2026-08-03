@@ -238,3 +238,46 @@ class ModelLibraryResponse(BaseModel):
     odsMode: str = "unknown"
     configuredMode: str = "unknown"
     llmBackend: str = "unknown"
+
+
+# --- DreamReason mesh ---
+
+class MeshPeer(BaseModel):
+    """One node in the DreamReason mesh, as seen from this node.
+
+    ``state`` is the discovery outcome and is deliberately fine-grained: a peer
+    that refused the connection and one that accepted and then went silent are
+    different operational problems, so they must not collapse into a single
+    "failed" value.
+
+      online-idle   reachable, GPU below the idle threshold -- eligible for work
+      online-busy   reachable, GPU at or above the threshold -- skip for now
+      unreachable   connection refused, reset, or DNS failure
+      timed-out     connection accepted but no response within the budget
+      unauthorized  peer answered 401/403 -- API key mismatch, not a fault
+      error         peer answered with some other non-2xx status
+      offline       Tailscale reports the peer as not online; never probed
+    """
+
+    hostname: Optional[str] = None
+    dns_name: Optional[str] = None
+    address: Optional[str] = None
+    online: bool = False
+    last_seen: Optional[str] = None
+    state: str
+    idle: Optional[bool] = None
+    utilization_percent: Optional[int] = None
+    threshold_percent: Optional[int] = None
+    gpu: Optional[dict[str, Any]] = None
+    loaded_model: Optional[str] = None
+    skills: list[str] = Field(default_factory=list)
+    ods_version: Optional[str] = None
+    detail: Optional[str] = None
+
+
+class MeshPeerList(BaseModel):
+    peers: list[MeshPeer] = Field(default_factory=list)
+    peer_count: int = 0
+    idle_count: int = 0
+    tailscale_running: bool = False
+    tailscale_authenticated: bool = False
