@@ -265,6 +265,10 @@ class MeshPeer(BaseModel):
     online: bool = False
     last_seen: Optional[str] = None
     state: str
+    # Explicit ports for providers that remap them (Vast.ai publishes each
+    # internal port on a different external one). None means "same as mine".
+    api_port: Optional[int] = None
+    litellm_port: Optional[int] = None
     idle: Optional[bool] = None
     utilization_percent: Optional[int] = None
     threshold_percent: Optional[int] = None
@@ -281,3 +285,4 @@ class MeshPeerList(BaseModel):
     idle_count: int = 0
     tailscale_running: bool = False
     tailscale_authenticated: bool = False
+    peer_source: str = "tailscale"

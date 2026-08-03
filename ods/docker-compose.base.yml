@@ -223,6 +223,12 @@ services:
       - ODS_AGENT_KEY=${ODS_AGENT_KEY:-}
       - ODS_ROUTER_INTERNAL_KEY=${ODS_ROUTER_INTERNAL_KEY:-}
       - MODEL_ROUTER_URL=http://model-router:9099
+      # DreamReason mesh peering. MESH_PEER_SOURCE=auto uses
+      # config/mesh-peers.json when present, else the tailnet.
+      - MESH_PEER_SOURCE=${MESH_PEER_SOURCE:-auto}
+      - MESH_PEERS_FILE=${MESH_PEERS_FILE:-/ods/config/mesh-peers.json}
+      - MESH_PEER_API_KEY=${MESH_PEER_API_KEY:-}
+      - MESH_PEER_TIMEOUT_SECONDS=${MESH_PEER_TIMEOUT_SECONDS:-5}
       - SHIELD_API_KEY=${SHIELD_API_KEY:-}
       - OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-}
       - TOKEN_SPY_URL=${TOKEN_SPY_URL:-http://token-spy:8080}

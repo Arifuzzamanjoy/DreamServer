@@ -46,6 +46,16 @@ def peer_host(peer: dict) -> str:
     raise ValueError(f"peer {peer.get('hostname')!r} has no usable address")
 
 
+def peer_litellm_port(peer: dict) -> int:
+    """Port of *peer*'s LiteLLM. Pure.
+
+    Defaults to 4000, which holds on a tailnet where every node is identical.
+    Providers that remap ports must say so per peer: on Vast.ai the external
+    port is published as VAST_TCP_PORT_4000 and is not 4000.
+    """
+    return int(peer.get("litellm_port") or PEER_LITELLM_PORT)
+
+
 def peer_entries(peer: dict, peer_key_env: str) -> list:
     """One LiteLLM model_list entry per skill this peer advertises.
 
@@ -53,7 +63,7 @@ def peer_entries(peer: dict, peer_key_env: str) -> list:
     model_name entries as a load-balancing group, which is what we want.
     """
     host = peer_host(peer)
-    api_base = f"http://{host}:{PEER_LITELLM_PORT}/v1"
+    api_base = f"http://{host}:{peer_litellm_port(peer)}/v1"
     upstream = peer.get("loaded_model") or "default"
     entries = []
     for skill in peer.get("skills") or []:

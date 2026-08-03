@@ -1,0 +1,31 @@
+{
+  "_comment": [
+    "Static peer list for meshes with no tailnet -- rented GPU hosts reached",
+    "over public IPs. Copy to config/mesh-peers.json on EVERY node, listing the",
+    "OTHER nodes (a node does not list itself).",
+    "",
+    "On Vast.ai the external port is not the internal one. Read the mapping for",
+    "each instance from its own environment:",
+    "    echo $VAST_TCP_PORT_3002    # dashboard-api  -> api_port",
+    "    echo $VAST_TCP_PORT_4000    # litellm        -> litellm_port",
+    "Those ports must be requested when the instance is created, or they are",
+    "not published at all.",
+    "",
+    "Every peer needs the same MESH_PEER_API_KEY so cross-node probes",
+    "authenticate; a mismatch shows up as state=unauthorized, not as a failure."
+  ],
+  "peers": [
+    {
+      "hostname": "vast-a",
+      "host": "203.0.113.10",
+      "api_port": 41287,
+      "litellm_port": 41288
+    },
+    {
+      "hostname": "vast-b",
+      "host": "198.51.100.22",
+      "api_port": 39104,
+      "litellm_port": 39105
+    }
+  ]
+}

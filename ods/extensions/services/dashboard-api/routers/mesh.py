@@ -16,8 +16,10 @@ them resolves to a specific, meaningful state.
 """
 
 import asyncio
+import json
 import logging
 import os
+from pathlib import Path
 from typing import Optional
 
 import aiohttp
@@ -37,23 +39,36 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["mesh"])
 
-# A peer runs the same dashboard-api as this node, on the same port.
+# Default when a peer does not carry its own port. True on a tailnet, where
+# every node runs the same dashboard-api on the same port. NOT true on rented
+# GPU hosts: Vast.ai publishes each internal port on a different external one
+# (VAST_TCP_PORT_<internal>), so peers there must state their own ports.
 PEER_API_PORT = int(os.getenv("MESH_PEER_API_PORT", "3002"))
+
+# Where the peer list comes from:
+#   auto       static file when present, else Tailscale  (default)
+#   static     the file only -- fail loudly if it is missing
+#   tailscale  the tailnet only
+PEER_SOURCE = os.getenv("MESH_PEER_SOURCE", "auto")
+# ./config is mounted read-only at /ods/config in dashboard-api's compose
+PEER_FILE = Path(os.getenv("MESH_PEERS_FILE", "/ods/config/mesh-peers.json"))
 PEER_PROBE_TIMEOUT = aiohttp.ClientTimeout(
     total=float(os.getenv("MESH_PEER_TIMEOUT_SECONDS", "5"))
 )
 
 
 def peer_base_url(peer: dict) -> Optional[str]:
-    """First Tailscale IP of *peer* as a dashboard-api base URL.
+    """Address of *peer*'s dashboard-api.
 
     Prefers the IP over the MagicDNS name: discovery must keep working when
-    MagicDNS is disabled on the tailnet.
+    MagicDNS is disabled on the tailnet. Honours a per-peer ``api_port``, which
+    is what makes port-remapping providers work -- on Vast.ai the external port
+    is not the internal one.
     """
     ips = peer.get("ips") or []
     if not ips:
         return None
-    return f"http://{ips[0]}:{PEER_API_PORT}"
+    return f"http://{ips[0]}:{peer.get('api_port') or PEER_API_PORT}"
 
 
 def parse_peers(status: dict) -> list:
@@ -66,6 +81,42 @@ def parse_peers(status: dict) -> list:
     if not isinstance(peers, list):
         return []
     return peers
+
+
+def normalize_static_peer(entry: dict) -> dict:
+    """One entry of mesh-peers.json in the shape probing expects. Pure.
+
+    Static peers are declared by address rather than discovered, so ``online``
+    is assumed true and the probe decides the truth. Raises on a peer with no
+    host: a peer nobody can address is a config error, not a peer.
+    """
+    host = entry.get("host") or entry.get("ip")
+    if not host:
+        raise ValueError(f"mesh peer {entry.get('hostname')!r} has no host/ip")
+    return {
+        "hostname": entry.get("hostname") or host,
+        "dns_name": entry.get("dns_name"),
+        "ips": [host],
+        "online": True,
+        "last_seen": None,
+        "api_port": entry.get("api_port"),
+        "litellm_port": entry.get("litellm_port"),
+    }
+
+
+def load_static_peers(path: Path) -> list:
+    """Peers declared in *path*.
+
+    Used where there is no tailnet -- rented GPU hosts reached over public IPs
+    with provider-remapped ports. Malformed JSON raises: a silently ignored
+    peer file looks exactly like a mesh with no peers, which is the single
+    most confusing failure this feature can have.
+    """
+    payload = json.loads(path.read_text())
+    entries = payload.get("peers") if isinstance(payload, dict) else payload
+    if not isinstance(entries, list):
+        raise ValueError(f"{path} has no 'peers' list")
+    return [normalize_static_peer(entry) for entry in entries]
 
 
 def _merge_probe(peer: dict, capabilities: dict, idle: dict) -> MeshPeer:
@@ -82,6 +133,8 @@ def _merge_probe(peer: dict, capabilities: dict, idle: dict) -> MeshPeer:
         idle=is_idle,
         utilization_percent=idle.get("utilization_percent"),
         threshold_percent=idle.get("threshold_percent"),
+        api_port=peer.get("api_port"),
+        litellm_port=peer.get("litellm_port"),
         gpu=gpu,
         loaded_model=capabilities.get("loaded_model"),
         skills=capabilities.get("skills") or [],
@@ -99,6 +152,8 @@ def _unprobed(peer: dict, state: str, detail: Optional[str] = None) -> MeshPeer:
         last_seen=peer.get("last_seen"),
         state=state,
         detail=detail,
+        api_port=peer.get("api_port"),
+        litellm_port=peer.get("litellm_port"),
     )
 
 
@@ -179,11 +234,24 @@ async def mesh_peers() -> MeshPeerList:
     and ``detail`` — a mesh with an unreachable node is a fact worth
     reporting, not an error worth raising.
     """
-    status = await asyncio.to_thread(_tailscale_status)
-    if not status.get("running", False):
-        return MeshPeerList(tailscale_running=False, tailscale_authenticated=False)
+    use_static = PEER_SOURCE == "static" or (
+        PEER_SOURCE == "auto" and PEER_FILE.is_file()
+    )
 
-    peers = parse_peers(status)
+    if use_static:
+        if not PEER_FILE.is_file():
+            raise HTTPException(
+                status_code=503,
+                detail=f"MESH_PEER_SOURCE=static but {PEER_FILE} does not exist.",
+            )
+        peers = await asyncio.to_thread(load_static_peers, PEER_FILE)
+        status = {"running": True, "authenticated": True}
+    else:
+        status = await asyncio.to_thread(_tailscale_status)
+        if not status.get("running", False):
+            return MeshPeerList(tailscale_running=False, tailscale_authenticated=False)
+        peers = parse_peers(status)
+
     api_key = os.getenv("MESH_PEER_API_KEY", "") or os.getenv("DASHBOARD_API_KEY", "")
 
     async with aiohttp.ClientSession() as session:
@@ -197,4 +265,5 @@ async def mesh_peers() -> MeshPeerList:
         idle_count=sum(1 for p in probed if p.state == "online-idle"),
         tailscale_running=True,
         tailscale_authenticated=bool(status.get("authenticated", False)),
+        peer_source="static" if use_static else "tailscale",
     )
