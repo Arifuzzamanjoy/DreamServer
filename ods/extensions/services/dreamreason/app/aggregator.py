@@ -33,6 +33,10 @@ DEFAULT_CONSENSUS_THRESHOLD = 0.85
 
 _WHITESPACE = re.compile(r"\s+")
 _JUDGE_CHOICE = re.compile(r"CHOICE:\s*(\d+)", re.IGNORECASE)
+_CHOICE_MARKER = re.compile(r"\(([A-Za-z])\)")
+_SHORT_FORM_ANSWERS = frozenset({
+    "yes", "no", "true", "false", "valid", "invalid",
+})
 _JUDGE_REASON = re.compile(r"REASON:\s*(.+)", re.IGNORECASE | re.DOTALL)
 
 
@@ -59,10 +63,41 @@ def pairwise_agreement(answers: list) -> float:
     return sum(scores) / len(scores)
 
 
+def consensus_key(text: str) -> str:
+    """The operative answer inside *text*, or "" if it is free-form. Pure.
+
+    Structured answers -- multiple choice, yes/no, true/false -- are compared on
+    the answer itself rather than the prose around it.
+    """
+    if not text:
+        return ""
+    markers = _CHOICE_MARKER.findall(text)
+    if markers:
+        return markers[-1].upper()
+    last_line = normalize(text).split("\n")[-1].strip(" .!")
+    tokens = last_line.replace(",", " ").split()
+    if tokens and tokens[-1] in _SHORT_FORM_ANSWERS:
+        return tokens[-1]
+    return ""
+
+
 def has_consensus(answers: list, threshold: float = DEFAULT_CONSENSUS_THRESHOLD) -> bool:
-    """Whether peers agree closely enough to skip the judge. Pure."""
+    """Whether peers agree closely enough to skip the judge. Pure.
+
+    Surface similarity alone is not safe here. Peers that reason aloud share
+    almost all of their text and differ only in the final token, so three
+    answers of (A), (B) and (C) score ~0.96 similar and would bypass the judge
+    while completely disagreeing -- silently disabling selection on exactly the
+    multiple-choice benchmarks used to evaluate it. Measured, not hypothetical.
+
+    So when the answers are structured, consensus means the extracted answers
+    are identical. Similarity is only consulted for genuinely free-form text.
+    """
     if len(answers) < 2:
         return False
+    keys = [consensus_key(a) for a in answers]
+    if all(keys):
+        return len(set(keys)) == 1
     return pairwise_agreement(answers) >= threshold
 
 

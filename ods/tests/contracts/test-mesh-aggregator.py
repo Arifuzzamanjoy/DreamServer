@@ -80,6 +80,36 @@ def test_disagreement_does_not_bypass():
     check("agreement below threshold", agg.pairwise_agreement(differing) < 0.85)
 
 
+def test_disagreeing_multiple_choice_is_not_consensus():
+    """Regression: measured on BBH, not hypothetical.
+
+    Peers that reason aloud share nearly all their text and differ only in the
+    final token. Judged on surface similarity, (A)/(B)/(C) scored 0.957 and
+    bypassed the judge on 14 of 14 benchmark items -- silently disabling
+    selection on exactly the task it was being evaluated on.
+    """
+    differing = ["Working through it.\n(A)",
+                 "Working through it.\n(B)",
+                 "Working through it.\n(C)"]
+    check("surface similarity really is high", agg.pairwise_agreement(differing) > 0.9)
+    check("but disagreeing choices are NOT consensus",
+          agg.has_consensus(differing) is False)
+
+
+def test_same_choice_different_prose_is_consensus():
+    same = ["Long reasoning about objects.\n(B)",
+            "Completely different wording here.\n(B)"]
+    check("same answer through different prose is consensus",
+          agg.has_consensus(same) is True)
+
+
+def test_short_form_answers_compare_on_the_answer():
+    check("differing yes/no is not consensus",
+          agg.has_consensus(["I think yes", "I think no"]) is False)
+    check("matching true/false is consensus",
+          agg.has_consensus(["Therefore true", "So, true"]) is True)
+
+
 def test_single_answer_is_not_consensus():
     # One peer agreeing with itself is not agreement between peers.
     check("one answer is not consensus", agg.has_consensus(["only one"]) is False)
