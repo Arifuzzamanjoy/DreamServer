@@ -4544,6 +4544,28 @@ def _run_update_script(action: str, *args: str, timeout: int | None) -> subproce
     )
 
 
+def distill_tailscale_peers(payload: dict) -> list:
+    """Reduce the `tailscale status --json` Peer map to what the mesh needs.
+
+    The full Peer entries carry ~30 fields each; DreamReason peer discovery
+    only needs identity, addressability and liveness. Returned in a stable
+    order so callers and tests do not depend on dict iteration order.
+    """
+    peers = payload.get("Peer") or {}
+    distilled = []
+    for entry in peers.values():
+        dns_name = (entry.get("DNSName") or "").rstrip(".") or None
+        distilled.append({
+            "hostname": entry.get("HostName"),
+            "dns_name": dns_name,
+            "ips": entry.get("TailscaleIPs") or [],
+            "online": bool(entry.get("Online", False)),
+            "last_seen": entry.get("LastSeen"),
+        })
+    distilled.sort(key=lambda p: (p["hostname"] or "", (p["ips"] or [""])[0]))
+    return distilled
+
+
 class AgentHandler(BaseHTTPRequestHandler):
     # Dashboard API keeps a small connection pool to avoid exhausting macOS
     # ephemeral ports when requests traverse the private Colima TCP bridge.
@@ -4642,6 +4664,7 @@ class AgentHandler(BaseHTTPRequestHandler):
         json_response(self, 200, {
             "running": True,
             "authenticated": payload.get("BackendState") == "Running",
+            "peers": distill_tailscale_peers(payload),
             "backend_state": payload.get("BackendState"),
             "source": source,
             "self": {

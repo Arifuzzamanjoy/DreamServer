@@ -139,6 +139,7 @@ class PeerHandler(BaseHTTPRequestHandler):
 def parse_args():
     p = argparse.ArgumentParser(description="Fake DreamReason mesh peer")
     p.add_argument("--port", type=int, required=True)
+    p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--name", required=True)
     p.add_argument("--skill", required=True, help="primary skill, e.g. code")
     p.add_argument(
@@ -167,9 +168,9 @@ def parse_args():
 def main():
     cfg = parse_args()
     handler = type("BoundPeerHandler", (PeerHandler,), {"cfg": cfg})
-    server = ThreadingHTTPServer(("127.0.0.1", cfg.port), handler)
+    server = ThreadingHTTPServer((cfg.host, cfg.port), handler)
     print(
-        f"[{cfg.name}] listening on 127.0.0.1:{cfg.port} "
+        f"[{cfg.name}] listening on {cfg.host}:{cfg.port} "
         f"skill={cfg.skill} behavior={cfg.behavior}",
         flush=True,
     )
