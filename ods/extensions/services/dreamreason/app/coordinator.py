@@ -20,6 +20,7 @@ All peer traffic goes through LiteLLM, never directly to a peer's llama-server
 import asyncio
 import logging
 import os
+import time
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -64,6 +65,7 @@ class ReasonResponse(BaseModel):
     agreement: float
     candidates: list[dict]
     judge_invoked: bool
+    total_tokens: int = 0
 
 
 def effective_fanout(requested: int | None) -> int:
@@ -107,30 +109,39 @@ async def ask_peer(client: httpx.AsyncClient, model: str, question: str) -> dict
     """
     payload = {"model": model, "messages": [{"role": "user", "content": question}]}
     headers = {"Authorization": f"Bearer {LITELLM_KEY}"} if LITELLM_KEY else {}
+    start = time.perf_counter()
     try:
         resp = await client.post(
             f"{LITELLM_URL}/chat/completions", json=payload, headers=headers,
             timeout=PEER_TIMEOUT,
         )
     except httpx.TimeoutException:
-        return {"peer": model, "answer": None, "state": "timed-out"}
+        return {"peer": model, "answer": None, "state": "timed-out",
+                "latency_s": time.perf_counter() - start}
     except httpx.ConnectError as exc:
-        return {"peer": model, "answer": None, "state": "unreachable", "detail": str(exc)}
+        return {"peer": model, "answer": None, "state": "unreachable",
+                "detail": str(exc), "latency_s": time.perf_counter() - start}
 
+    elapsed = time.perf_counter() - start
     if resp.status_code >= 400:
-        return {"peer": model, "answer": None, "state": f"http-{resp.status_code}"}
+        return {"peer": model, "answer": None, "state": f"http-{resp.status_code}",
+                "latency_s": elapsed}
 
     body = resp.json()
+    usage = body.get("usage") or {}
     return {
         "peer": model,
         "answer": body["choices"][0]["message"]["content"],
         "state": "ok",
         "model": body.get("model"),
+        # Per-peer timing is what makes the straggler effect measurable.
+        "latency_s": elapsed,
+        "total_tokens": usage.get("total_tokens", 0),
     }
 
 
 async def run_judge(client: httpx.AsyncClient, question: str, candidates: list) -> tuple:
-    """Ask the judge to select a candidate. Returns (index, reason)."""
+    """Ask the judge to select a candidate. Returns (index, reason, tokens)."""
     prompt = build_judge_prompt(question, candidates)
     verdict = await ask_peer(client, JUDGE_MODEL, prompt)
     if verdict["state"] != "ok":
@@ -138,7 +149,8 @@ async def run_judge(client: httpx.AsyncClient, question: str, candidates: list) 
             status_code=502,
             detail=f"judge model {JUDGE_MODEL} unavailable: {verdict['state']}",
         )
-    return parse_judge_verdict(verdict["answer"], len(candidates))
+    index, reason = parse_judge_verdict(verdict["answer"], len(candidates))
+    return index, reason, verdict.get("total_tokens", 0)
 
 
 @app.get("/health")
@@ -169,6 +181,7 @@ async def reason(request: ReasonRequest) -> ReasonResponse:
 
         answers = [r["answer"] for r in answered]
         agreement = pairwise_agreement(answers)
+        tokens = sum(r.get("total_tokens", 0) for r in results)
 
         # MOSAIC: on consensus the judge costs latency and buys nothing.
         if has_consensus(answers, CONSENSUS_THRESHOLD):
@@ -183,6 +196,7 @@ async def reason(request: ReasonRequest) -> ReasonResponse:
                 agreement=agreement,
                 candidates=results,
                 judge_invoked=False,
+                total_tokens=tokens,
             )
 
         if len(answered) == 1:
@@ -194,9 +208,12 @@ async def reason(request: ReasonRequest) -> ReasonResponse:
                 agreement=agreement,
                 candidates=results,
                 judge_invoked=False,
+                total_tokens=tokens,
             )
 
-        index, reason_text = await run_judge(client, request.question, answered)
+        index, reason_text, judge_tokens = await run_judge(
+            client, request.question, answered)
+        tokens += judge_tokens
 
     return ReasonResponse(
         answer=answered[index]["answer"],
@@ -206,4 +223,5 @@ async def reason(request: ReasonRequest) -> ReasonResponse:
         agreement=agreement,
         candidates=results,
         judge_invoked=True,
+        total_tokens=tokens,
     )
