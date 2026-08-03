@@ -1,0 +1,39 @@
+services:
+  dreamreason:
+    build:
+      context: ./extensions/services/dreamreason
+    image: ods-dreamreason:local
+    container_name: ods-dreamreason
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      # Peer traffic goes through LiteLLM, never straight to a peer's
+      # llama-server (ODS-RUNTIME-MESH-LLM-LOCAL-ROUTE).
+      - MESH_LITELLM_URL=${MESH_LITELLM_URL:-http://litellm:4000/v1}
+      - LITELLM_KEY=${LITELLM_KEY:-}
+      # Capped at 3: accuracy drops materially from 5 to 10 agents
+      # (Ringelmann, arXiv 2606.02646). Never "all idle peers".
+      - MESH_FANOUT=${MESH_FANOUT:-3}
+      - MESH_JUDGE_MODEL=${MESH_JUDGE_MODEL:-local}
+      - MESH_CONSENSUS_THRESHOLD=${MESH_CONSENSUS_THRESHOLD:-0.85}
+      - MESH_PEER_TIMEOUT_SECONDS=${MESH_PEER_TIMEOUT_SECONDS:-120}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${DREAMREASON_PORT:-9200}:9200"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9200/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

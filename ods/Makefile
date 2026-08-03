@@ -33,6 +33,7 @@ test: ## Run unit and contract tests
 	@echo "=== Installer contracts ==="
 	@python3 tests/contracts/test-mesh-litellm-config.py
 	@python3 tests/contracts/test-mesh-skill-router.py
+	@python3 tests/contracts/test-mesh-aggregator.py
 	@bash tests/contracts/test-installer-contracts.sh
 	@bash tests/test-external-services.sh
 	@bash tests/test-resolve-compose-resilient.sh
