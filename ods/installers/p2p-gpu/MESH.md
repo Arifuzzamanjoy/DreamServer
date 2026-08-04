@@ -7,12 +7,16 @@ three things differ from a normal deploy.
 
 **1. No tailnet.** The toolkit has no Tailscale support — access is SSH tunnel
 plus Cloudflare, and Tailscale in a rented container needs `/dev/net/tun` and
-`NET_ADMIN`, which are not guaranteed. So peers come from one of two other
-sources: declared by address in `config/mesh-peers.json`
-(`MESH_PEER_SOURCE=auto|static`), or read from the Vast.ai account roster
-(`MESH_PEER_SOURCE=vastai`). Vast.ai discovery removes the hand-edited peer
-file, which is the step that breaks when an instance is preempted. It carries a
-security tradeoff and a hard limitation; both are stated below.
+`NET_ADMIN`, which are not guaranteed. So peers come from one of two sources:
+declared by address in `config/mesh-peers.json` (`MESH_PEER_SOURCE=auto|static`),
+or read from the Vast.ai account roster (`MESH_PEER_SOURCE=vastai`).
+
+`scripts/mesh-connect.sh` writes the peer file for you from a roster of SSH
+endpoints, tunnelling 3002 and 4000 over port 22. That is the option to reach
+for first, because it needs nothing from the provider — see Option A below.
+Vast.ai discovery needs no peer file at all, but only works if the instances
+were created with 3002 and 4000 published, and it carries a security tradeoff
+and a hard limitation; both are stated below.
 
 **2. Ports are remapped.** Vast.ai publishes each internal port on a different
 external one, exposed as `VAST_TCP_PORT_<internal>`. Peers therefore carry
@@ -70,9 +74,52 @@ At the end, each node prints its own coordinates:
 
 ## Wire the peers together
 
-Pick one of the two sources.
+Pick one of the three sources.
 
-### Option A — Vast.ai discovery (no peer file)
+### Option A — SSH tunnels from a roster (works on any instance)
+
+Use this unless your instances were created with 3002 and 4000 published. Vast
+only opens ports requested at instance creation, and 22 is the one that is
+always there, so tunnelling the service ports over SSH forms a mesh out of
+instances that were never provisioned for one.
+
+Put the same roster on every node — the order fixes the port mapping, so an
+identical file gives every node an identical view:
+
+```bash
+cp config/mesh-nodes.example.conf config/mesh-nodes.conf
+# one line per node:  <name> <user>@<host>:<ssh-port>
+# on Vast the ssh-port is $VAST_TCP_PORT_22, not 22
+```
+
+Then on **each** node:
+
+```bash
+bash scripts/mesh-connect.sh init     # prints a public key
+```
+
+Install that public key in every *other* node's `~/.ssh/authorized_keys`, then:
+
+```bash
+bash scripts/mesh-connect.sh up
+```
+
+That allocates tunnel ports from each node's roster position, installs one
+systemd unit per peer, and writes `config/mesh-peers.json` itself. Nothing is
+hand-allocated and nothing is hand-edited.
+
+systemd owns tunnel lifetime deliberately. A bare `ssh -N -f` dies with its
+parent shell and never returns, which surfaces days later as peers that were
+online at deploy time and are unreachable now, with nothing in any log to say
+when. `Restart=always` makes a dropped tunnel a five-second gap instead.
+
+Check it any time with:
+
+```bash
+bash scripts/mesh-connect.sh status
+```
+
+### Option B — Vast.ai discovery (no peer file)
 
 Each node asks Vast.ai which instances the account is running and derives its
 peer list from that. Nothing to edit when a node is preempted or replaced.
@@ -117,7 +164,7 @@ The roster is cached for `MESH_VAST_POLL_TTL_SECONDS` (30 by default), so a
 preempted node drops out of routing within about that long without anyone
 touching a config file.
 
-### Option B — declared peers
+### Option C — declared peers
 
 On every node, write `config/mesh-peers.json` listing the **other** nodes (a
 node does not list itself):
