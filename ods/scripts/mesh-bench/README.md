@@ -7,6 +7,14 @@ Two arms over the same BBH items:
 | `single` | one completion from one model, straight through LiteLLM |
 | `mesh` | the coordinator's `/v1/reason` — fan out to ≤3 peers, then select |
 
+## Requirements
+
+The runner talks HTTP from the host, so it needs httpx outside the containers:
+
+```bash
+pip3 install --break-system-packages httpx
+```
+
 ## Running it
 
 ```bash

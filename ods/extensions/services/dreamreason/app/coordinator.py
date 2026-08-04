@@ -83,6 +83,52 @@ def effective_fanout(requested: int | None) -> int:
     return max(1, min(value, FANOUT_HARD_CAP))
 
 
+# LiteLLM's model list only changes on a config reload, so a short cache keeps
+# discovery off the hot path without going stale in practice.
+PEER_SKILL_TTL = 60.0
+_peer_skills: dict = {"expires": 0.0, "skills": []}
+
+
+async def discover_peer_skills(client: httpx.AsyncClient) -> list:
+    """Skills LiteLLM currently serves, read from its model list.
+
+    Without this the coordinator only fans out when the caller names skills --
+    and a chat client never does, so every request would go to exactly one peer
+    and selection would never run. That makes the whole system inert by
+    default, which is worse than being wrong loudly.
+
+    A failed lookup returns nothing rather than raising: discovery is an
+    optimisation over keyword routing, and losing it should degrade fan-out,
+    not break answering. It is logged so the degradation is visible.
+    """
+    now = time.monotonic()
+    if now < _peer_skills["expires"]:
+        return _peer_skills["skills"]
+
+    headers = {"Authorization": f"Bearer {LITELLM_KEY}"} if LITELLM_KEY else {}
+    try:
+        resp = await client.get(f"{LITELLM_URL}/models", headers=headers, timeout=10.0)
+    except httpx.TimeoutException:
+        logger.warning("peer discovery timed out; falling back to keyword routing")
+        return []
+    except httpx.ConnectError as exc:
+        logger.warning("peer discovery unreachable (%s); keyword routing", exc)
+        return []
+
+    if resp.status_code >= 400:
+        logger.warning("peer discovery got HTTP %s; keyword routing", resp.status_code)
+        return []
+
+    skills = sorted(
+        model["id"][len("peer-"):]
+        for model in resp.json().get("data", [])
+        if str(model.get("id", "")).startswith("peer-")
+    )
+    _peer_skills.update({"expires": now + PEER_SKILL_TTL, "skills": skills})
+    logger.info("discovered %d peer skill(s): %s", len(skills), ", ".join(skills))
+    return skills
+
+
 def peer_models(skills: list, question: str, fanout: int,
                 best: str = None) -> list:
     """LiteLLM model names to query, best skill first. Pure.
@@ -191,7 +237,9 @@ async def run_mesh(request: ReasonRequest) -> ReasonResponse:
     fanout = effective_fanout(request.fanout)
 
     async with httpx.AsyncClient() as client:
-        skills = request.skills or []
+        # Caller-supplied skills win; otherwise ask LiteLLM what it serves, so
+        # a plain chat turn still fans out across every registered peer.
+        skills = request.skills or await discover_peer_skills(client)
         best = await resolve_skill(client, request.question, skills)
         models = peer_models(skills, request.question, fanout, best=best)
         results = await asyncio.gather(

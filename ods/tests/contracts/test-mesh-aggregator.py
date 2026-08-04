@@ -141,6 +141,48 @@ def test_fanout_never_queries_one_peer_twice():
     check("one skill yields one peer, not padding", narrow == ["peer-code"])
 
 
+def test_fanout_needs_no_skills_from_the_caller():
+    """Regression caught on a live node: a chat client never sends skills, and
+    without them peer_models returned a single model. Fan-out and selection
+    were inert by default -- 'sole-responder' on every request."""
+    import asyncio
+    import coordinator  # noqa: E402
+
+    class FakeResp:
+        status_code = 200
+        @staticmethod
+        def json():
+            return {"data": [{"id": "local"}, {"id": "peer-code"},
+                             {"id": "peer-reasoning"}, {"id": "mesh"}]}
+
+    class FakeClient:
+        async def get(self, *a, **k):
+            return FakeResp()
+
+    coordinator._peer_skills.update({"expires": 0.0, "skills": []})
+    skills = asyncio.run(coordinator.discover_peer_skills(FakeClient()))
+    check(f"peer skills discovered from LiteLLM ({skills})",
+          skills == ["code", "reasoning"])
+    check("non-peer models ignored", "local" not in skills and "mesh" not in skills)
+
+    models = coordinator.peer_models(skills, "write a python function", 3)
+    check(f"fan-out spans discovered peers ({models})", len(models) == 2)
+
+
+def test_discovery_failure_degrades_instead_of_breaking():
+    import asyncio
+    import httpx
+    import coordinator  # noqa: E402
+
+    class DeadClient:
+        async def get(self, *a, **k):
+            raise httpx.ConnectError("refused")
+
+    coordinator._peer_skills.update({"expires": 0.0, "skills": []})
+    got = asyncio.run(coordinator.discover_peer_skills(DeadClient()))
+    check("unreachable gateway yields no skills rather than raising", got == [])
+
+
 def test_fixed_decomposition_is_three_way():
     parts = agg.decompose_fixed("What is 2+2?")
     check("decomposition yields 3 parts", len(parts) == 3)
