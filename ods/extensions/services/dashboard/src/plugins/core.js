@@ -6,6 +6,7 @@ import {
   Activity,
   Box,
   Network,
+  Share2,
   Cloud,
   UserPlus,
   CreditCard,
@@ -21,6 +22,7 @@ const RemoteProvider = lazy(() => import('../pages/RemoteProvider'))
 const ServiceMap = lazy(() => import('../pages/ServiceMap'))
 const Invites = lazy(() => import('../pages/Invites'))
 const Usage = lazy(() => import('../pages/Usage'))
+const Mesh = lazy(() => import('../pages/Mesh'))
 
 export const coreRoutes = [
   {
@@ -63,6 +65,18 @@ export const coreRoutes = [
     getProps: () => ({}),
     sidebar: true,
     order: 2.1,
+  },
+  {
+    id: 'mesh',
+    path: '/mesh',
+    label: 'Mesh',
+    icon: Share2,
+    component: Mesh,
+    getProps: () => ({}),
+    // Route is always registered so the URL works; the sidebar entry only
+    // appears in mesh mode, where peers are the thing you watch.
+    sidebar: ({ status }) => status?.ods_mode === 'mesh',
+    order: 2.2,
   },
   {
     id: 'models',

@@ -34,7 +34,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # --- Local modules ---
 from config import (
     SERVICES, DATA_DIR, INSTALL_DIR, SIDEBAR_ICONS, MANIFEST_ERRORS, ALWAYS_ON_SERVICES,
-    AGENT_HOST, AGENT_PORT, AGENT_URL, ODS_AGENT_KEY,
+    AGENT_HOST, AGENT_PORT, AGENT_URL, ODS_AGENT_KEY, ODS_MODE_EFFECTIVE,
     _detect_container_default_gateway, _running_inside_container,
     _read_env_from_file,
 )
@@ -1346,6 +1346,7 @@ async def api_status(api_key: str = Depends(verify_api_key)):
             "gpu": None, "services": [], "model": None,
             "bootstrap": None, "uptime": 0,
             "version": app.version, "tier": "Unknown",
+            "ods_mode": ODS_MODE_EFFECTIVE,
             "cpu": {"percent": 0, "temp_c": None},
             "ram": {"used_gb": 0, "total_gb": 0, "percent": 0},
             "disk": {"used_gb": 0, "total_gb": 0, "percent": 0},
@@ -1451,6 +1452,9 @@ async def _build_api_status() -> dict:
         "gpu": gpu_data, "services": services_data, "model": model_data,
         "bootstrap": bootstrap_data, "uptime": uptime,
         "version": app.version, "tier": tier,
+        # Lets the dashboard show mode-specific surfaces (the Mesh page) without
+        # a second request.
+        "ods_mode": ODS_MODE_EFFECTIVE,
         "currentModel": configured_model_name,
         "loadedModel": loaded_model_name,
         "configuredModel": configured_model_name,
