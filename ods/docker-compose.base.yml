@@ -230,6 +230,9 @@ services:
       - MESH_PEERS_FILE=${MESH_PEERS_FILE:-/ods/config/mesh-peers.json}
       - MESH_PEER_API_KEY=${MESH_PEER_API_KEY:-}
       - MESH_PEER_TIMEOUT_SECONDS=${MESH_PEER_TIMEOUT_SECONDS:-5}
+      # Routing keys this node advertises to peers, comma-separated. Each one
+      # becomes a peer-<skill> model on every peer that discovers this node.
+      - MESH_NODE_SKILLS=${MESH_NODE_SKILLS:-general}
       # Account-scoped Vast.ai credential. Only reaches the container when
       # MESH_PEER_SOURCE=vastai is deliberately configured; read the security
       # tradeoff in installers/p2p-gpu/MESH.md before setting it.

@@ -1,6 +1,7 @@
 """Tests for /api/node/capabilities — aggregated node diagnostics snapshot."""
 
 from models import GPUInfo, ServiceStatus
+from routers.node import parse_skills
 
 
 def _gpu():
@@ -29,6 +30,27 @@ def _services_with_degraded():
         ServiceStatus(id="qdrant", name="Qdrant", port=6333,
                       external_port=6333, status="down", response_time_ms=None),
     ]
+
+
+class TestParseSkills:
+    """Skills are the mesh routing keys, so an empty list is never correct.
+
+    Discovery copies them onto MeshPeer.skills and the LiteLLM config generator
+    emits one peer-<skill> model per entry. A node advertising nothing is
+    discovered and then never routed to, which looks exactly like it being down.
+    """
+
+    def test_splits_and_normalises(self):
+        assert parse_skills("Code, Reasoning ,general") == ["code", "reasoning", "general"]
+
+    def test_deduplicates_preserving_order(self):
+        assert parse_skills("code,general,code") == ["code", "general"]
+
+    def test_empty_falls_back_to_general(self):
+        assert parse_skills("") == ["general"]
+
+    def test_whitespace_only_falls_back(self):
+        assert parse_skills("  ,  ,") == ["general"]
 
 
 class TestNodeCapabilitiesEndpoint:

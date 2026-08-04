@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
@@ -20,6 +21,27 @@ router = APIRouter(tags=["node"])
 # helpers.check_service_health), so it counts as up. Used to compute
 # running_service_count.
 _RUNNING_STATUSES = {"healthy", "unhealthy", "unknown", "degraded"}
+
+# What this node advertises to mesh peers. A peer's skills are the routing keys
+# LiteLLM registers as peer-<skill>, so a node reporting none is discovered and
+# then never given work. "general" is the floor: every node can answer
+# something, and Symbolic-MoE selects on skill rather than hostname.
+MESH_NODE_SKILLS = "general"
+
+
+def parse_skills(raw: str) -> list[str]:
+    """Comma-separated skill list into an ordered, de-duplicated list. Pure.
+
+    Falls back to the default rather than an empty list: an empty skills list
+    silently removes the node from every peer's routing table, which looks
+    identical to the node being down.
+    """
+    skills = []
+    for item in (raw or "").split(","):
+        name = item.strip().lower()
+        if name and name not in skills:
+            skills.append(name)
+    return skills or [MESH_NODE_SKILLS]
 
 
 def _install_root() -> Path:
@@ -92,6 +114,7 @@ async def node_capabilities(request: Request):
         ods_version=_read_ods_version(request.app.version),
         gpu=gpu_info,
         loaded_model=loaded_model,
+        skills=parse_skills(os.getenv("MESH_NODE_SKILLS", "")),
         services=services,
         service_count=len(services),
         running_service_count=len(running),

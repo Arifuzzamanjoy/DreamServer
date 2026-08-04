@@ -44,6 +44,10 @@ class NodeCapabilities(BaseModel):
     ods_version: str
     gpu: Optional[GPUInfo] = None
     loaded_model: Optional[str] = None
+    # Routing keys this node advertises to mesh peers. Discovery copies these
+    # onto MeshPeer.skills, and generate-mesh-litellm-config.py turns each one
+    # into a peer-<skill> model, so a node with none is never routed to.
+    skills: list[str] = Field(default_factory=list)
     services: list[ServiceStatus] = []
     service_count: int = 0
     running_service_count: int = 0
