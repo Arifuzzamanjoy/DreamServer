@@ -384,6 +384,30 @@ discover_service_ports() {
   done
 }
 
+# Re-enable the DreamReason coordinator on a mesh node.
+#
+# The coordinator ships with compose.yaml.disabled so single-instance deploys
+# do not build an image they will never run. That means any path which brings
+# the stack back up -- fix, resume -- must re-enable it first, or a mesh node
+# silently returns without its coordinator and :9200 refuses connections.
+ensure_mesh_services() {
+  local ds_dir="$1"
+  local mode
+  mode="$(env_get "${ds_dir}/.env" "ODS_MODE")"
+  [[ "$mode" != "mesh" ]] && return 0
+
+  local compose_file="${ds_dir}/extensions/services/dreamreason/compose.yaml"
+  if [[ -f "${compose_file}.disabled" && ! -f "$compose_file" ]]; then
+    mv "${compose_file}.disabled" "$compose_file" \
+      || warn "could not enable dreamreason (non-fatal)"
+    log "Enabled DreamReason coordinator for mesh mode"
+  elif [[ -f "$compose_file" ]]; then
+    log "DreamReason coordinator already enabled"
+  else
+    warn "dreamreason compose not found — is this branch missing the mesh code?"
+  fi
+}
+
 # Detect available compose command
 get_compose_cmd() {
   if docker compose version &>/dev/null; then

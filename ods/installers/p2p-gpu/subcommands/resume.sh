@@ -31,6 +31,7 @@ cmd_resume() {
     enumerate_gpus
     run_gpu_assignment "$ds_dir" "${ds_dir}/.env"
   fi
+  ensure_mesh_services "$ds_dir"
   start_services "$ds_dir"
   print_access_info "$ds_dir"
 

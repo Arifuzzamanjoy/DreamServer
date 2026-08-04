@@ -63,6 +63,7 @@ set -euo pipefail
     run_gpu_assignment "$ds_dir" "${ds_dir}/.env"
   fi
 
+  ensure_mesh_services "$ds_dir"
   log "Fixes applied. Restarting services..."
   start_services "$ds_dir"
   ensure_whisper_asr_model "$ds_dir"

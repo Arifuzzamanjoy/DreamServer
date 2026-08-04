@@ -102,6 +102,26 @@ curl -s -H "Authorization: Bearer $DASHBOARD_API_KEY" localhost:3002/api/mesh/pe
 ./ods-cli restart litellm dreamreason
 ```
 
+## Reaching it from your laptop
+
+The tunnel only forwards the dashboard port unless you ask for everything:
+
+```bash
+FULL_TUNNEL=1 bash connect-tunnel.sh
+```
+
+That forwards every discovered service port, including the coordinator on
+9200. A plain `ssh -L 8080:localhost:8080` will not reach it — that is what
+ERR_CONNECTION_REFUSED on http://localhost:9200 means. The manual equivalent:
+
+```bash
+ssh -p <ssh-port> root@<host> \
+    -L 9200:localhost:9200 \
+    -L 3001:localhost:3001 \
+    -L 3000:localhost:3000 \
+    -L 4000:localhost:4000
+```
+
 ## Verify
 
 ```bash
