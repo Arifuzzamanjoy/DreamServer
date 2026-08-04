@@ -135,7 +135,11 @@ def test_fanout_never_queries_one_peer_twice():
                                      "Write a Python function to sort a list", 3)
     check(f"no duplicate peers in fan-out ({models})", len(models) == len(set(models)))
     check("best skill leads", models[0] == "peer-code")
-    check("fan-out honours the cap", len(models) == 3)
+    # A ceiling, not a quota. Screening is allowed to come in under budget --
+    # spending the full cap on a prompt that is plainly about code is the cost
+    # RouteMoA removes.
+    check("fan-out never exceeds the cap", len(models) <= 3)
+    check("confident prompt comes in under budget", len(models) < 3)
 
     narrow = coordinator.peer_models(["code"], "Write a Python function", 3)
     check("one skill yields one peer, not padding", narrow == ["peer-code"])
@@ -165,8 +169,19 @@ def test_fanout_needs_no_skills_from_the_caller():
           skills == ["code", "reasoning"])
     check("non-peer models ignored", "local" not in skills and "mesh" not in skills)
 
+    # The regression this test exists for is fan-out going inert without
+    # caller-supplied skills, so what matters is that discovery feeds routing
+    # at all. The count is the screener's call, not this test's: "write a
+    # python function" is diagnostic of code, so paying for reasoning too is
+    # the waste RouteMoA screening removes.
     models = coordinator.peer_models(skills, "write a python function", 3)
-    check(f"fan-out spans discovered peers ({models})", len(models) == 2)
+    check(f"fan-out is driven by discovered skills ({models})",
+          models and all(m[len("peer-"):] in skills for m in models))
+    check("confidently-routed prompt reaches its skill", "peer-code" in models)
+
+    # And with nothing to go on, breadth is restored.
+    vague = coordinator.peer_models(skills, "what about it", 3)
+    check(f"ambiguous prompt still spans the pool ({vague})", len(vague) == 2)
 
 
 def test_discovery_failure_degrades_instead_of_breaking():

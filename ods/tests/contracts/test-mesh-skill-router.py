@@ -86,6 +86,60 @@ def test_model_name_is_the_litellm_routing_key():
           sr.model_for_skill("algebra") == "peer-algebra")
 
 
+ALL_SKILLS = ["algebra", "code", "general", "geometry", "logic", "reasoning",
+              "writing"]
+
+
+def test_confident_prompt_narrows_the_pool():
+    # RouteMoA's premise: screen from the query and stop paying for peers the
+    # scorer already predicts are a poor fit.
+    picked = sr.select_candidates(CODE_Q, ALL_SKILLS, 3)
+    check("confident prompt spends less than the budget", len(picked) < 3)
+    check("confident prompt keeps its own skill", "code" in picked)
+    check("confident prompt drops unrelated skills",
+          "writing" not in picked and "geometry" not in picked)
+
+
+def test_ambiguous_prompt_still_spends_the_budget():
+    # Breadth is the hedge exactly when the scorer has no opinion; narrowing
+    # here would remove the second opinion fan-out exists to buy.
+    picked = sr.select_candidates("What do you think?", ALL_SKILLS, 3)
+    check("ambiguous prompt fills the budget", len(picked) == 3)
+
+
+def test_never_exceeds_the_budget():
+    for prompt in (CODE_Q, ALGEBRA_Q, GEOMETRY_Q, WRITING_Q, LOGIC_Q, "hello"):
+        check(f"budget respected for {prompt[:20]!r}",
+              len(sr.select_candidates(prompt, ALL_SKILLS, 2)) <= 2)
+
+
+def test_only_offered_skills_are_returned():
+    picked = sr.select_candidates(CODE_Q, ["writing", "general"], 3)
+    check("never returns a skill no peer serves",
+          all(skill in ("writing", "general") for skill in picked))
+
+
+def test_screening_is_deterministic():
+    check("same prompt screens the same way",
+          sr.select_candidates(ALGEBRA_Q, ALL_SKILLS, 3)
+          == sr.select_candidates(ALGEBRA_Q, ALL_SKILLS, 3))
+
+
+def test_empty_pool_returns_nothing():
+    check("no peers means no candidates", sr.select_candidates(CODE_Q, [], 3) == [])
+    check("zero budget means no candidates",
+          sr.select_candidates(CODE_Q, ALL_SKILLS, 0) == [])
+
+
+def test_best_skill_survives_screening():
+    # The screened set must still contain what select_skill would have picked,
+    # or narrowing would silently overrule the router.
+    for prompt in (CODE_Q, ALGEBRA_Q, GEOMETRY_Q, WRITING_Q, LOGIC_Q):
+        best = sr.select_skill(prompt, ALL_SKILLS)
+        check(f"top pick kept for {prompt[:20]!r}",
+              best in sr.select_candidates(prompt, ALL_SKILLS, 3))
+
+
 def main():
     print("=== DreamReason skill router contract ===")
     for name, fn in sorted(globals().items()):

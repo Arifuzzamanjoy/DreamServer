@@ -128,6 +128,48 @@ def select_skill(prompt: str, available: list = None) -> str:
     return GENERAL_SKILL if GENERAL_SKILL in offered or not offered else sorted(offered)[0]
 
 
+# Pre-inference screening (RouteMoA, arXiv 2601.18130). RouteMoA scores
+# candidates from the query alone and drops the low-potential ones *before*
+# paying for any inference, reporting 89.8% cost and 63.6% latency reduction
+# against querying the whole pool. rank_skills is already that scorer -- it
+# reads the prompt and produces per-skill scores with no model call -- so the
+# only thing missing was acting on its confidence.
+#
+# Keep a candidate whose score is within this fraction of the best.
+ROUTE_MARGIN = 0.6
+# A weight-2 rule fired, which SKILL_RULES defines as diagnostic on its own.
+# Below this the scorer has no real opinion and breadth is the better hedge:
+# that ambiguous case is what fan-out exists for.
+CONFIDENT_SCORE = 2
+
+
+def select_candidates(prompt: str, available: list, limit: int,
+                      margin: float = ROUTE_MARGIN) -> list:
+    """Skills worth querying for *prompt*, best first, at most *limit*. Pure.
+
+    Adaptive by design. A confidently-routed prompt narrows to the skills that
+    actually scored, so the mesh stops paying for peers the scorer already
+    knows are a poor fit. An ambiguous prompt still fans out to the full
+    budget, because that is exactly when a second opinion is worth buying.
+
+    Returns skills, not model names -- the caller owns the LiteLLM naming.
+    """
+    offered = list(dict.fromkeys(available or []))
+    if not offered or limit <= 0:
+        return []
+
+    ranked = [(skill, score) for skill, score in rank_skills(prompt)
+              if skill in offered]
+
+    if not ranked or ranked[0][1] < CONFIDENT_SCORE:
+        best = select_skill(prompt, offered)
+        ordered = [best] + [skill for skill in offered if skill != best]
+        return ordered[:limit]
+
+    cutoff = ranked[0][1] * margin
+    return [skill for skill, score in ranked if score >= cutoff][:limit]
+
+
 def model_for_skill(skill: str) -> str:
     """LiteLLM model name for *skill* -- the routing key mesh.yaml declares."""
     return f"peer-{skill}"

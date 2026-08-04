@@ -1,11 +1,23 @@
 """DreamReason coordinator: fan out to peers, then select one answer.
 
+This is best-of-N sampling with an LLM judge. It is not decomposition, and it
+does not synthesise: the answer returned is one peer's answer verbatim. Worth
+stating plainly, because the surrounding architectures it borrows from do
+something else -- MoA (arXiv 2406.04692) composes a new answer from every
+agent's output, and Symphony (arXiv 2508.20019) does weighted voting over
+chains of thought. See installers/p2p-gpu/research/mesh-reasoning-sota.md.
+
 Pipeline for one query:
 
   1. skill_router picks the skill, which is the LiteLLM model name
-  2. fan out to at most MESH_FANOUT peers (default 3) via LiteLLM :4000
-  3. if the answers agree, return the consensus and skip the judge
-  4. otherwise a judge LLM selects the best answer and says why
+  2. screen the peer pool from the prompt alone, before spending anything
+  3. fan out to at most MESH_FANOUT peers (default 3) via LiteLLM :4000
+  4. if the answers agree, return the consensus and skip the judge
+  5. otherwise a judge LLM selects the best answer and says why
+
+Step 2 is RouteMoA's contribution (arXiv 2601.18130): score candidates from the
+query and drop the poor fits before paying for inference, rather than querying
+the pool and sorting it out afterwards.
 
 Fan-out is capped at 3 on purpose. The Ringelmann Effect in Multi-Agent LLM
 Systems (arXiv 2606.02646) finds modest degradation from 2 to 4 agents and a
@@ -35,7 +47,7 @@ from aggregator import (
     pairwise_agreement,
     parse_judge_verdict,
 )
-from skill_router import route, select_skill
+from skill_router import route, select_candidates, select_skill
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("dreamreason")
@@ -138,22 +150,30 @@ def peer_models(skills: list, question: str, fanout: int,
                 best: str = None) -> list:
     """LiteLLM model names to query, best skill first. Pure.
 
-    Deduplicated: querying one peer twice wastes a fan-out slot and hands the
-    judge two identical candidates, which biases selection toward whichever
-    peer happened to be duplicated.
+    *fanout* is a budget, not a quota. select_candidates screens the pool from
+    the prompt alone and returns fewer peers when the scorer is confident, so a
+    clearly-routed question stops paying for peers already predicted to be a
+    poor fit (RouteMoA, arXiv 2601.18130). Ambiguous questions still spend the
+    whole budget.
+
+    Deduplicated: querying one peer twice wastes a slot and hands the judge two
+    identical candidates, which biases selection toward whichever peer happened
+    to be duplicated.
     """
     if not skills:
         return [route(question)] if best is None else [f"peer-{best}"]
-    if best is None:
-        best = select_skill(question, skills)
-    ordered = [best] + [s for s in skills if s != best]
+
+    candidates = select_candidates(question, skills, fanout)
+    # A semantic pick comes from embeddings rather than the keyword scorer, so
+    # it may not be in the screened set. The caller's choice still leads.
+    if best is not None and best in skills:
+        candidates = [best] + [s for s in candidates if s != best]
+
     models = []
-    for skill in ordered:
+    for skill in candidates[:fanout]:
         name = f"peer-{skill}"
         if name not in models:
             models.append(name)
-        if len(models) == fanout:
-            break
     return models
 
 
