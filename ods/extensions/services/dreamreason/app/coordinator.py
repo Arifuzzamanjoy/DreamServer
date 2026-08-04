@@ -49,6 +49,11 @@ CONSENSUS_THRESHOLD = float(
     os.environ.get("MESH_CONSENSUS_THRESHOLD", DEFAULT_CONSENSUS_THRESHOLD)
 )
 PEER_TIMEOUT = float(os.environ.get("MESH_PEER_TIMEOUT_SECONDS", "120"))
+# Unbounded generation is the straggler mechanism MOSAIC describes: the
+# whole fan-out waits on whichever peer decided to think longest, and a
+# reasoning model will happily spend hundreds of tokens on a one-word
+# question. 0 disables the cap.
+MESH_MAX_TOKENS = int(os.environ.get("MESH_MAX_TOKENS", "512"))
 # keyword until semantic routing is shown to beat it on a labelled set --
 # see scripts/mesh-bench/compare-routers.py
 MESH_ROUTER = os.environ.get("MESH_ROUTER", "keyword")
@@ -175,6 +180,8 @@ async def ask_peer(client: httpx.AsyncClient, model: str, question: str) -> dict
     would make the fan-out cap meaningless.
     """
     payload = {"model": model, "messages": [{"role": "user", "content": question}]}
+    if MESH_MAX_TOKENS > 0:
+        payload["max_tokens"] = MESH_MAX_TOKENS
     headers = {"Authorization": f"Bearer {LITELLM_KEY}"} if LITELLM_KEY else {}
     start = time.perf_counter()
     try:

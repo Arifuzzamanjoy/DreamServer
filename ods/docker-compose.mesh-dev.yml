@@ -26,6 +26,10 @@ x-mesh-peer: &mesh-peer
     - ./data/models:/models:z
   environment:
     - LLAMA_ARG_FLASH_ATTN=${LLAMA_ARG_FLASH_ATTN:-auto}
+    # Match docker-compose.base.yml. Qwen3.5 emits a reasoning trace by
+    # default -- ~300 tokens to answer "hi" -- and three peers doing that
+    # concurrently ahead of a judge is what turns a fan-out into a timeout.
+    - LLAMA_ARG_REASONING=${LLAMA_REASONING:-off}
   healthcheck:
     test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
     interval: 10s

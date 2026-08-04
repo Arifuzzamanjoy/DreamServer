@@ -183,6 +183,14 @@ def test_discovery_failure_degrades_instead_of_breaking():
     check("unreachable gateway yields no skills rather than raising", got == [])
 
 
+def test_generation_is_bounded():
+    """Measured on a live node: a reasoning model spent ~300 tokens answering
+    "hi", and three peers doing that ahead of a judge exceeded the timeout."""
+    import coordinator  # noqa: E402
+    check("a cap is set by default", coordinator.MESH_MAX_TOKENS > 0)
+    check("cap is not absurdly large", coordinator.MESH_MAX_TOKENS <= 4096)
+
+
 def test_fixed_decomposition_is_three_way():
     parts = agg.decompose_fixed("What is 2+2?")
     check("decomposition yields 3 parts", len(parts) == 3)
