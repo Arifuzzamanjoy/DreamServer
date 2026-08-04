@@ -261,6 +261,43 @@ def test_stream_is_one_honest_chunk():
     check("carries the answer", "the answer" in body)
 
 
+def test_idle_peers_are_preferred_over_busy_ones():
+    """mesh.yaml records idleness as of config generation. A peer that went
+    busy afterwards still gets dispatched work unless availability is checked
+    per request, and the request then queues behind whatever it is doing."""
+    import coordinator  # noqa: E402
+
+    ordered = coordinator.order_by_availability(
+        ["code", "reasoning", "general"], ["general"])
+    check(f"idle skill promoted ({ordered})", ordered[0] == "general")
+    check("busy peers kept, not dropped", set(ordered) == {"code", "reasoning", "general"})
+
+
+def test_no_idle_information_changes_nothing():
+    import coordinator  # noqa: E402
+    candidates = ["code", "reasoning", "general"]
+    check("empty idle list is a no-op",
+          coordinator.order_by_availability(candidates, []) == candidates)
+
+
+def test_all_busy_still_answers():
+    """Dropping busy peers would mean a mesh where everyone is momentarily
+    busy answers nothing. A queued answer beats no answer."""
+    import coordinator  # noqa: E402
+    ordered = coordinator.order_by_availability(["code", "reasoning"], ["writing"])
+    check("no idle match still returns candidates", len(ordered) == 2)
+
+
+def test_availability_decides_who_makes_the_budget():
+    """Ordering must run before the budget is applied, or a busy peer keeps a
+    slot an idle one should have had."""
+    import coordinator  # noqa: E402
+    models = coordinator.peer_models(
+        ["code", "reasoning", "general"], "what about it", 1,
+        idle_skills=["general"])
+    check(f"single slot goes to the idle peer ({models})", models == ["peer-general"])
+
+
 def main():
     print("=== DreamReason aggregator contract ===")
     for name, fn in sorted(globals().items()):

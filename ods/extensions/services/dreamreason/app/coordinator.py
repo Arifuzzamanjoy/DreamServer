@@ -146,8 +146,79 @@ async def discover_peer_skills(client: httpx.AsyncClient) -> list:
     return skills
 
 
+# Which peers can take work *right now*. Separate from the skill list on
+# purpose: LiteLLM is authoritative for what is routable, dashboard-api is
+# authoritative for what is available, and neither should fake the other.
+#
+# mesh.yaml only records idleness as it was when the config was generated, so
+# without this a peer that went busy afterwards still gets dispatched work and
+# the request queues behind whatever it is already doing.
+#
+# Shorter TTL than the skill cache: GPU load moves, a model list does not.
+PEER_STATE_TTL = float(os.environ.get("MESH_PEER_STATE_TTL", "15"))
+DASHBOARD_API_URL = os.environ.get("MESH_DASHBOARD_API_URL", "http://dashboard-api:3002")
+MESH_API_KEY = (os.environ.get("MESH_PEER_API_KEY", "")
+                or os.environ.get("DASHBOARD_API_KEY", ""))
+IDLE_STATE = "online-idle"
+_peer_state: dict = {"expires": 0.0, "idle_skills": []}
+
+
+async def discover_idle_skills(client: httpx.AsyncClient) -> list:
+    """Skills served by at least one peer that is idle right now.
+
+    Degrades to an empty list rather than raising, matching
+    discover_peer_skills: availability is an ordering hint over routing, so
+    losing it should cost peer preference, not the answer. Logged so the
+    degradation is visible instead of silently becoming round-robin.
+    """
+    now = time.monotonic()
+    if now < _peer_state["expires"]:
+        return _peer_state["idle_skills"]
+
+    headers = {"Authorization": f"Bearer {MESH_API_KEY}"} if MESH_API_KEY else {}
+    try:
+        resp = await client.get(f"{DASHBOARD_API_URL}/api/mesh/peers",
+                                headers=headers, timeout=10.0)
+    except httpx.TimeoutException:
+        logger.warning("peer state timed out; routing without idleness")
+        return []
+    except httpx.ConnectError as exc:
+        logger.warning("peer state unreachable (%s); routing without idleness", exc)
+        return []
+
+    if resp.status_code >= 400:
+        logger.warning("peer state got HTTP %s; routing without idleness",
+                       resp.status_code)
+        return []
+
+    idle = sorted({
+        skill
+        for peer in resp.json().get("peers", [])
+        if peer.get("state") == IDLE_STATE
+        for skill in (peer.get("skills") or [])
+    })
+    _peer_state.update({"expires": now + PEER_STATE_TTL, "idle_skills": idle})
+    logger.info("%d idle skill(s): %s", len(idle), ", ".join(idle) or "none")
+    return idle
+
+
+def order_by_availability(candidates: list, idle_skills: list) -> list:
+    """Idle-serving skills first, order otherwise preserved. Pure.
+
+    Busy peers are demoted, never dropped. Dropping them means a mesh where
+    every peer is momentarily busy answers nothing at all, and a queued answer
+    beats no answer. The screener already decided these are all worth asking;
+    this only decides who gets asked first when the budget cannot cover them.
+    """
+    if not idle_skills:
+        return candidates
+    idle = set(idle_skills)
+    return ([s for s in candidates if s in idle]
+            + [s for s in candidates if s not in idle])
+
+
 def peer_models(skills: list, question: str, fanout: int,
-                best: str = None) -> list:
+                best: str = None, idle_skills: list = None) -> list:
     """LiteLLM model names to query, best skill first. Pure.
 
     *fanout* is a budget, not a quota. select_candidates screens the pool from
@@ -156,6 +227,10 @@ def peer_models(skills: list, question: str, fanout: int,
     poor fit (RouteMoA, arXiv 2601.18130). Ambiguous questions still spend the
     whole budget.
 
+    Screening decides who is worth asking; *idle_skills* decides who is asked
+    first when the budget cannot cover them all. Fit and availability are
+    different questions and are answered by different sources.
+
     Deduplicated: querying one peer twice wastes a slot and hands the judge two
     identical candidates, which biases selection toward whichever peer happened
     to be duplicated.
@@ -163,7 +238,11 @@ def peer_models(skills: list, question: str, fanout: int,
     if not skills:
         return [route(question)] if best is None else [f"peer-{best}"]
 
-    candidates = select_candidates(question, skills, fanout)
+    # Screen on fit across the whole pool before applying the budget, so
+    # availability decides *which* peers make the cut and not merely their
+    # order inside an already-truncated list. The budget is applied below.
+    candidates = order_by_availability(
+        select_candidates(question, skills, len(skills)), idle_skills or [])
     # A semantic pick comes from embeddings rather than the keyword scorer, so
     # it may not be in the screened set. The caller's choice still leads.
     if best is not None and best in skills:
@@ -267,8 +346,10 @@ async def run_mesh(request: ReasonRequest) -> ReasonResponse:
         # Caller-supplied skills win; otherwise ask LiteLLM what it serves, so
         # a plain chat turn still fans out across every registered peer.
         skills = request.skills or await discover_peer_skills(client)
+        idle_skills = await discover_idle_skills(client)
         best = await resolve_skill(client, request.question, skills)
-        models = peer_models(skills, request.question, fanout, best=best)
+        models = peer_models(skills, request.question, fanout, best=best,
+                             idle_skills=idle_skills)
         results = await asyncio.gather(
             *(ask_peer(client, model, request.question) for model in models)
         )
