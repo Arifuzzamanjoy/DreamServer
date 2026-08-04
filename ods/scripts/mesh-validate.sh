@@ -108,12 +108,49 @@ fi
 # ── 3. Peer discovery ──────────────────────────────────────────────────────
 head_ "3. Peer discovery"
 
+# The configured source decides what "wired up correctly" means, so check the
+# prerequisites of the one that is actually selected before reading the peers.
+configured_source="$(grep -m1 '^MESH_PEER_SOURCE=' .env | cut -d= -f2- || echo 'auto')"
+configured_source="${configured_source:-auto}"
+
+if [[ "$configured_source" == "vastai" ]]; then
+  # Presence only. The key is never printed: it is account-scoped and this
+  # output gets pasted into issues.
+  if grep -q '^ODS_VAST_API_KEY=.\+' .env; then
+    ok "ODS_VAST_API_KEY is set"
+  else
+    no "MESH_PEER_SOURCE=vastai but ODS_VAST_API_KEY is empty" \
+       "set it in .env (scope the key to instance_read only), then ods restart dashboard-api"
+  fi
+
+  label_prefix="$(grep -m1 '^MESH_VAST_LABEL_PREFIX=' .env | cut -d= -f2- || echo '')"
+  label_prefix="${label_prefix:-dreamreason-mesh}"
+  ok "label prefix is '${label_prefix}' — only instances labelled with it join"
+
+  self_id="$(grep -m1 '^MESH_VAST_SELF_INSTANCE_ID=' .env | cut -d= -f2- || echo '')"
+  [[ -z "$self_id" ]] && self_id="$(grep -m1 '^CONTAINER_ID=' .env | cut -d= -f2- || echo '')"
+  if [[ -n "$self_id" ]]; then
+    ok "instance id ${self_id} known — this node excludes itself from its peers"
+  else
+    no "neither CONTAINER_ID nor MESH_VAST_SELF_INSTANCE_ID is set in .env" \
+       "this node will list itself as a peer; set CONTAINER_ID=\$CONTAINER_ID in .env"
+  fi
+
+  if [[ -f config/mesh-peers.json ]]; then
+    skip "config/mesh-peers.json exists but is ignored in vastai mode"
+  fi
+fi
+
 if peers_json="$(api /api/mesh/peers 2>/dev/null)"; then
   ok "/api/mesh/peers responds"
   source_name="$(echo "$peers_json" | jqr "d.get('peer_source','?')")"
   count="$(echo "$peers_json" | jqr "d.get('peer_count',0)")"
   idle="$(echo "$peers_json" | jqr "d.get('idle_count',0)")"
   printf '         source=%s peers=%s idle=%s\n' "$source_name" "$count" "$idle"
+  if [[ "$configured_source" != "auto" && "$source_name" != "$configured_source" ]]; then
+    no "discovery answered from '${source_name}', not the configured '${configured_source}'" \
+       "dashboard-api is running with a stale MESH_PEER_SOURCE; ods restart dashboard-api"
+  fi
   if [[ "$count" -gt 0 ]]; then
     echo "$peers_json" | python3 -c "
 import sys,json
@@ -122,11 +159,20 @@ for p in json.load(sys.stdin).get('peers',[]):
     [[ "$idle" -gt 0 ]] \
       && ok "${idle} peer(s) idle and eligible for work" \
       || no "peers found but none idle" "check GPU load, or raise GPU_IDLE_THRESHOLD_PERCENT"
+  elif [[ "$configured_source" == "vastai" ]]; then
+    skip "roster is empty — no other running instance is labelled ${label_prefix}*"
   else
     skip "no peers — single node. Add config/mesh-peers.json, or use docker-compose.mesh-dev.yml"
   fi
 else
+  # curl -f hides the body, and for vastai the body is the whole diagnosis:
+  # a rejected key, a rate limit and an unset key are three different fixes.
+  detail="$(curl -sS -m 10 -H "Authorization: Bearer ${API_KEY}" \
+      "http://localhost:${API_PORT}/api/mesh/peers" 2>/dev/null || echo '')"
   no "/api/mesh/peers failed" "check DASHBOARD_API_KEY in .env and 'docker logs ods-dashboard-api'"
+  if [[ -n "$detail" ]]; then
+    printf '         response: %s\n' "${detail:0:300}"
+  fi
 fi
 
 # ── 4. The mesh as a usable model ──────────────────────────────────────────

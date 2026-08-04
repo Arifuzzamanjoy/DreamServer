@@ -225,10 +225,20 @@ services:
       - MODEL_ROUTER_URL=http://model-router:9099
       # DreamReason mesh peering. MESH_PEER_SOURCE=auto uses
       # config/mesh-peers.json when present, else the tailnet.
+      # MESH_PEER_SOURCE=vastai instead reads the Vast.ai account roster.
       - MESH_PEER_SOURCE=${MESH_PEER_SOURCE:-auto}
       - MESH_PEERS_FILE=${MESH_PEERS_FILE:-/ods/config/mesh-peers.json}
       - MESH_PEER_API_KEY=${MESH_PEER_API_KEY:-}
       - MESH_PEER_TIMEOUT_SECONDS=${MESH_PEER_TIMEOUT_SECONDS:-5}
+      # Account-scoped Vast.ai credential. Only reaches the container when
+      # MESH_PEER_SOURCE=vastai is deliberately configured; read the security
+      # tradeoff in installers/p2p-gpu/MESH.md before setting it.
+      - ODS_VAST_API_KEY=${ODS_VAST_API_KEY:-}
+      - MESH_VAST_LABEL_PREFIX=${MESH_VAST_LABEL_PREFIX:-dreamreason-mesh}
+      - MESH_VAST_POLL_TTL_SECONDS=${MESH_VAST_POLL_TTL_SECONDS:-30}
+      # Vast injects this into the instance; forwarding it is what lets a node
+      # leave itself out of its own peer list.
+      - CONTAINER_ID=${CONTAINER_ID:-}
       - SHIELD_API_KEY=${SHIELD_API_KEY:-}
       - OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-}
       - TOKEN_SPY_URL=${TOKEN_SPY_URL:-http://token-spy:8080}

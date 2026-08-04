@@ -5,14 +5,19 @@ Composes two endpoints that already exist on every ODS node:
   * ``/api/node/capabilities`` — what the peer is (GPU, loaded model, version)
   * ``/api/gpu/idle``         — whether the peer can take work right now
 
-Tailscale supplies the peer list; this module fans out to each online peer and
-merges both answers into one :class:`MeshPeer`.
+A peer source supplies the peer list; this module fans out to each online peer
+and merges both answers into one :class:`MeshPeer`.
 
 Peer states stay distinct. A peer that refuses the connection, one that accepts
 and then goes silent, and one that rejects the API key are three different
 operational problems, so each maps to its own state rather than being swallowed
 into a null. Only narrow, per-transport exceptions are caught, and every one of
 them resolves to a specific, meaningful state.
+
+Sources are interchangeable by design: each one answers "who might be a peer"
+and hands back the same dict shape, and ``probe_peer`` decides who actually is.
+That is the trust boundary. Adding a registry or a second tailnet later means
+adding a module and one line in ``PEER_SOURCES``, not reworking this file.
 """
 
 import asyncio
@@ -20,11 +25,12 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import aiohttp
 from fastapi import APIRouter, Depends, HTTPException
 
+import mesh_vastai
 from host_agent_client import (
     AgentHTTPError,
     AgentProtocolError,
@@ -49,6 +55,11 @@ PEER_API_PORT = int(os.getenv("MESH_PEER_API_PORT", "3002"))
 #   auto       static file when present, else Tailscale  (default)
 #   static     the file only -- fail loudly if it is missing
 #   tailscale  the tailnet only
+#   vastai     the Vast.ai account roster
+#
+# vastai is opt-in only and deliberately absent from auto: it calls an external
+# API with an account credential, which is not something a node should start
+# doing because a file happened to be missing.
 PEER_SOURCE = os.getenv("MESH_PEER_SOURCE", "auto")
 # ./config is mounted read-only at /ods/config in dashboard-api's compose
 PEER_FILE = Path(os.getenv("MESH_PEERS_FILE", "/ods/config/mesh-peers.json"))
@@ -221,49 +232,145 @@ def _tailscale_status() -> dict:
         raise HTTPException(status_code=500, detail=f"Host agent call failed: {exc}") from exc
 
 
+# ---------------------------------------------------------------------------
+# Peer sources
+#
+# One per way of learning who the peers are. Each returns a Discovery, and the
+# only thing the endpoint knows about any of them is that shape.
+#
+# tailscale_running / tailscale_authenticated predate non-tailnet peering. A
+# source with no tailnet reports True so clients that gate their peer table on
+# those fields keep rendering; the honest signal for which source answered is
+# peer_source.
+# ---------------------------------------------------------------------------
+
+
+class Discovery(NamedTuple):
+    """Who might be a peer, and which source said so."""
+
+    peers: list
+    source: str
+    tailscale_running: bool = True
+    tailscale_authenticated: bool = True
+
+
+async def discover_static() -> Discovery:
+    """Peers declared in MESH_PEERS_FILE."""
+    if not PEER_FILE.is_file():
+        raise HTTPException(
+            status_code=503,
+            detail=f"MESH_PEER_SOURCE=static but {PEER_FILE} does not exist.",
+        )
+    peers = await asyncio.to_thread(load_static_peers, PEER_FILE)
+    return Discovery(peers=peers, source="static")
+
+
+async def discover_tailscale() -> Discovery:
+    """Peers on the tailnet, via the host agent."""
+    status = await asyncio.to_thread(_tailscale_status)
+    if not status.get("running", False):
+        return Discovery(peers=[], source="tailscale", tailscale_running=False,
+                         tailscale_authenticated=False)
+    return Discovery(
+        peers=parse_peers(status),
+        source="tailscale",
+        tailscale_authenticated=bool(status.get("authenticated", False)),
+    )
+
+
+async def discover_vastai() -> Discovery:
+    """Peers from the Vast.ai account roster.
+
+    Every failure mode maps to a distinct status, and none of them resolves to
+    an empty peer list. An unconfigured node, a rejected key and a throttled
+    account are three different problems, and a mesh with no peers is a fourth
+    — reporting the first three as the fourth is how a node silently stops
+    taking part.
+    """
+    try:
+        peers = await mesh_vastai.load_vastai_peers()
+    except mesh_vastai.VastConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except mesh_vastai.VastAPIError as exc:
+        if exc.status in (401, 403):
+            raise HTTPException(
+                status_code=502,
+                detail=f"vast.ai rejected ODS_VAST_API_KEY (HTTP {exc.status}).",
+            ) from exc
+        if exc.status == 429:
+            raise HTTPException(
+                status_code=502,
+                detail=("vast.ai rate-limited the roster poll (HTTP 429). Raise "
+                        "MESH_VAST_POLL_TTL_SECONDS or poll from fewer nodes."),
+            ) from exc
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=504, detail="vast.ai roster request timed out."
+        ) from exc
+    except aiohttp.ClientError as exc:
+        # Transport only. A non-2xx answer is already a VastAPIError above, so
+        # this is genuinely "could not talk to the API".
+        raise HTTPException(
+            status_code=503, detail=f"vast.ai API is not reachable: {exc}"
+        ) from exc
+    return Discovery(peers=peers, source="vastai")
+
+
+PEER_SOURCES = {
+    "static": discover_static,
+    "tailscale": discover_tailscale,
+    "vastai": discover_vastai,
+}
+
+
+async def resolve_peers() -> Discovery:
+    """Run whichever source MESH_PEER_SOURCE selects.
+
+    ``auto`` is the one branch that is not a plain lookup: it prefers the
+    static file when it exists and falls back to the tailnet when it does not,
+    so the same build works on a rented host and on a tailnet.
+    """
+    if PEER_SOURCE == "auto":
+        return await (discover_static() if PEER_FILE.is_file() else discover_tailscale())
+    source = PEER_SOURCES.get(PEER_SOURCE)
+    if source is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(f"MESH_PEER_SOURCE={PEER_SOURCE!r} is not a peer source. "
+                    f"Known: auto, {', '.join(sorted(PEER_SOURCES))}."),
+        )
+    return await source()
+
+
 @router.get(
     "/api/mesh/peers",
     response_model=MeshPeerList,
     dependencies=[Depends(verify_api_key)],
 )
 async def mesh_peers() -> MeshPeerList:
-    """Every Tailscale peer, with live capability and idle state.
+    """Every peer the configured source knows, with live capability and idle state.
 
     Read-only. Offline peers are listed but never probed. Peers are returned
     even when discovery fails against them, carrying the reason in ``state``
     and ``detail`` — a mesh with an unreachable node is a fact worth
-    reporting, not an error worth raising.
+    reporting, not an error worth raising. A source that cannot answer at all
+    is different: that raises, because it is not a fact about the mesh.
     """
-    use_static = PEER_SOURCE == "static" or (
-        PEER_SOURCE == "auto" and PEER_FILE.is_file()
-    )
-
-    if use_static:
-        if not PEER_FILE.is_file():
-            raise HTTPException(
-                status_code=503,
-                detail=f"MESH_PEER_SOURCE=static but {PEER_FILE} does not exist.",
-            )
-        peers = await asyncio.to_thread(load_static_peers, PEER_FILE)
-        status = {"running": True, "authenticated": True}
-    else:
-        status = await asyncio.to_thread(_tailscale_status)
-        if not status.get("running", False):
-            return MeshPeerList(tailscale_running=False, tailscale_authenticated=False)
-        peers = parse_peers(status)
+    discovery = await resolve_peers()
 
     api_key = os.getenv("MESH_PEER_API_KEY", "") or os.getenv("DASHBOARD_API_KEY", "")
 
     async with aiohttp.ClientSession() as session:
         probed = await asyncio.gather(
-            *(probe_peer(session, peer, api_key) for peer in peers)
+            *(probe_peer(session, peer, api_key) for peer in discovery.peers)
         )
 
     return MeshPeerList(
         peers=list(probed),
         peer_count=len(probed),
         idle_count=sum(1 for p in probed if p.state == "online-idle"),
-        tailscale_running=True,
-        tailscale_authenticated=bool(status.get("authenticated", False)),
-        peer_source="static" if use_static else "tailscale",
+        tailscale_running=discovery.tailscale_running,
+        tailscale_authenticated=discovery.tailscale_authenticated,
+        peer_source=discovery.source,
     )

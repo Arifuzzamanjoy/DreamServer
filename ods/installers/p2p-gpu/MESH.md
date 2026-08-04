@@ -7,10 +7,12 @@ three things differ from a normal deploy.
 
 **1. No tailnet.** The toolkit has no Tailscale support — access is SSH tunnel
 plus Cloudflare, and Tailscale in a rented container needs `/dev/net/tun` and
-`NET_ADMIN`, which are not guaranteed. So peers are *declared* by address in
-`config/mesh-peers.json` rather than discovered. `MESH_PEER_SOURCE=auto` uses
-that file when it exists and falls back to the tailnet when it does not, so the
-same build works on both.
+`NET_ADMIN`, which are not guaranteed. So peers come from one of two other
+sources: declared by address in `config/mesh-peers.json`
+(`MESH_PEER_SOURCE=auto|static`), or read from the Vast.ai account roster
+(`MESH_PEER_SOURCE=vastai`). Vast.ai discovery removes the hand-edited peer
+file, which is the step that breaks when an instance is preempted. It carries a
+security tradeoff and a hard limitation; both are stated below.
 
 **2. Ports are remapped.** Vast.ai publishes each internal port on a different
 external one, exposed as `VAST_TCP_PORT_<internal>`. Peers therefore carry
@@ -68,6 +70,55 @@ At the end, each node prints its own coordinates:
 
 ## Wire the peers together
 
+Pick one of the two sources.
+
+### Option A — Vast.ai discovery (no peer file)
+
+Each node asks Vast.ai which instances the account is running and derives its
+peer list from that. Nothing to edit when a node is preempted or replaced.
+
+Read [the security tradeoff](#the-key-on-the-node) before enabling this. In
+short: the key is account-scoped, it sits on hardware you do not own, and there
+is no per-instance key that can do the job.
+
+**Label every instance at creation** with a name starting `dreamreason-mesh`.
+Discovery filters on that prefix, and an instance without it is invisible to its
+siblings no matter how healthy it is.
+
+Then, on **each** instance before `setup.sh`:
+
+```bash
+export ODS_MESH_PEER_SOURCE=vastai
+export ODS_VAST_API_KEY="<account key, scoped to instance_read>"
+```
+
+Create the key with `instance_read` and nothing else. Vast's default keys have
+full account access, including instance creation and deletion.
+
+On an already-installed node, set the same thing in `.env` and restart:
+
+```bash
+MESH_PEER_SOURCE=vastai
+ODS_VAST_API_KEY=<account key, scoped to instance_read>
+MESH_VAST_LABEL_PREFIX=dreamreason-mesh
+MESH_VAST_POLL_TTL_SECONDS=30
+CONTAINER_ID=<this instance's id>
+```
+
+```bash
+./ods-cli restart dashboard-api
+```
+
+`CONTAINER_ID` is injected by Vast and is what lets a node leave itself out of
+its own peer list. Phase 13 copies it into `.env` automatically; set it by hand
+only if that step warned.
+
+The roster is cached for `MESH_VAST_POLL_TTL_SECONDS` (30 by default), so a
+preempted node drops out of routing within about that long without anyone
+touching a config file.
+
+### Option B — declared peers
+
 On every node, write `config/mesh-peers.json` listing the **other** nodes (a
 node does not list itself):
 
@@ -77,15 +128,16 @@ node does not list itself):
 ] }
 ```
 
-Confirm discovery sees them:
+### Either way, confirm discovery sees them
 
 ```bash
 curl -s -H "Authorization: Bearer $DASHBOARD_API_KEY" \
     localhost:3002/api/mesh/peers | python3 -m json.tool
 ```
 
-Expect `peer_source: "static"` and `state: "online-idle"` per peer. Anything
-else is diagnostic, not a generic failure:
+Expect `peer_source` to match the source you configured — `"vastai"` or
+`"static"` — and `state: "online-idle"` per peer. Anything else is diagnostic,
+not a generic failure:
 
 | state | meaning |
 |---|---|
@@ -93,6 +145,26 @@ else is diagnostic, not a generic failure:
 | `timed-out` | reachable but slow — usually a model still loading |
 | `unauthorized` | `MESH_PEER_API_KEY` differs between nodes |
 | `online-busy` | peer is up but its GPU is above the idle threshold |
+
+The endpoint itself failing is a different class of problem, and in `vastai`
+mode the status says which:
+
+| status | meaning |
+|---|---|
+| 503 | `ODS_VAST_API_KEY` is unset, or the Vast API is unreachable |
+| 502 with `rejected ODS_VAST_API_KEY` | the key is wrong or lacks `instance_read` |
+| 502 with `rate-limited` | too many nodes polling; raise `MESH_VAST_POLL_TTL_SECONDS` |
+| 504 | the Vast API did not answer in time |
+
+None of these degrade to an empty peer list. A misconfigured node reports a
+failure rather than quietly reporting a mesh with no peers, because those two
+look identical from the outside and have nothing in common as fixes.
+
+A node that Vast reports as running but that never published 3002 or 4000 is
+dropped from the roster with a warning in `docker logs ods-dashboard-api`
+naming the instance and the port. It is not listed as an unreachable peer,
+because the detail would read "connection refused" and send you looking at the
+network instead of at instance creation.
 
 Then generate the peer routes and restart, on every node:
 
@@ -194,3 +266,76 @@ LiteLLM and dashboard-api are reachable from the public internet. Both require
 auth (`LITELLM_KEY` is generated by the installer, dashboard-api enforces
 `DASHBOARD_API_KEY`), so this is not an open relay, but treat those keys as
 production secrets and tear instances down when the test finishes.
+
+### The key on the node
+
+Vast.ai discovery needs an **account-scoped** API key on every node. This is a
+real risk and there is no version of the in-node poller that removes it.
+
+The obvious mitigation does not exist. Vast injects a per-instance key as
+`CONTAINER_API_KEY`, but it is restricted to starting, stopping and destroying
+*its own* instance — it cannot list the account's other instances, so it cannot
+do discovery. Anything that enumerates siblings is account-scoped by
+construction.
+
+What you can do:
+
+* **Scope the key to `instance_read`.** Vast separates `instance_read` (show
+  instance, show instances) from `instance_write` (create, delete). A default
+  key gets both, plus billing and key management — the docs say so plainly. An
+  `instance_read` key on a rented box cannot destroy your fleet. Scoped keys
+  have to be created via the CLI or API, not the web console.
+* **Understand what it still leaks.** An `instance_read` key enumerates the
+  whole account roster — labels, public IPs, GPU models, hourly cost — to
+  anyone who can read the container's environment. That container runs on
+  hardware owned by a stranger who can read its memory and disk. Treat the key
+  as disclosed the moment it lands on the node.
+* **Rotate it when the test ends**, along with `DASHBOARD_API_KEY`,
+  `MESH_PEER_API_KEY` and `LITELLM_KEY`.
+
+Do not read "scoped to `instance_read`" as "safe". It is a smaller blast radius,
+not an absent one.
+
+### Controller-push: the variant where no key touches the mesh
+
+The key only has to be on a node because the node is the thing doing the
+polling. Move the polling off-mesh and the problem goes away. This is designed
+but not implemented; it is the shape to build if this graduates past a testbed.
+
+A controller — a laptop, a CI runner, any host you actually own — holds the
+Vast key and does what each node does today:
+
+1. poll `GET /api/v1/instances/`, filter by `actual_status` and label prefix
+2. resolve external 3002/4000 from each instance's port map
+3. `POST` the resulting roster to each node, authenticated with
+   `MESH_PEER_API_KEY`, which every node already shares
+
+Nodes keep `MESH_PEER_SOURCE=static` and gain a written peer file they did not
+have to be told about by a human. `probe_peer` stays the trust boundary exactly
+as it is now, so a compromised or stale controller can still only cause peers to
+report `unreachable`; it cannot manufacture a peer that answers.
+
+What it costs, stated honestly: the controller is a new single point of failure
+and has to stay running for membership to track reality. The in-node poller has
+no such dependency. That is the whole trade — a credential on every rented box
+in exchange for not needing a machine you own to be up.
+
+Two smaller wins come with it. The Vast API gets polled once per mesh instead of
+once per node, which matters because the rate limit is per account and
+undocumented (see the research note). And the roster is computed in one place,
+so every node agrees on membership instead of converging on it.
+
+## What this is not
+
+Vast.ai discovery finds instances **inside a single Vast.ai account**. A node
+can only discover peers it already shares a billing relationship with.
+
+That is enough for a testbed and it is not the volunteer mesh. Open membership
+needs a rendezvous point and peer identity that does not come from a cloud
+vendor's billing API, and no amount of work on this source produces either. It
+is scaffolding for testing fan-out and judge selection across real machines,
+and it should be replaced rather than extended.
+
+The details behind all of this — response schema, the 25-per-page cap, rate
+limits, key scopes, and whether `public_ipaddr` can change — are in
+[research/vastai-discovery.md](research/vastai-discovery.md) with source URLs.

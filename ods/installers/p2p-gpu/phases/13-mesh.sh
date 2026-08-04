@@ -11,10 +11,17 @@
 # Runs only when ODS_MESH=1. Mesh mode is useless on a single instance, and
 # building the coordinator image on every deploy costs minutes for nothing.
 #
-# Rented GPU hosts have no tailnet, so peers are declared by address in
-# config/mesh-peers.json rather than discovered. Vast.ai publishes each
-# internal port on a DIFFERENT external port (VAST_TCP_PORT_<internal>), so
-# this phase prints the coordinates other nodes must be given.
+# Rented GPU hosts have no tailnet. Two ways to peer:
+#
+#   ODS_MESH_PEER_SOURCE=vastai  each node asks the Vast.ai account which
+#                                instances are running and derives the roster.
+#                                Needs ODS_VAST_API_KEY on the node — read the
+#                                security tradeoff in MESH.md first.
+#   (default)                    peers are declared by address in
+#                                config/mesh-peers.json on every node.
+#
+# Either way Vast.ai publishes each internal port on a DIFFERENT external port
+# (VAST_TCP_PORT_<internal>), so this phase prints the coordinates.
 #
 # SPDX-License-Identifier: Apache-2.0
 # ============================================================================
@@ -57,13 +64,45 @@ if [[ -z "$mesh_key" ]]; then
   fi
 fi
 
-# ── Peer file ──────────────────────────────────────────────────────────────
-peers_file="${ODS_DIR}/config/mesh-peers.json"
-if [[ ! -f "$peers_file" ]]; then
-  example="${ODS_DIR}/config/mesh-peers.example.json"
-  [[ -f "$example" ]] && cp "$example" "${peers_file}.example" \
-    || warn "mesh-peers example not found (non-fatal)"
-  log "No config/mesh-peers.json yet — this node has no peers until you add one"
+# ── Peer source ────────────────────────────────────────────────────────────
+peer_source="${ODS_MESH_PEER_SOURCE:-auto}"
+env_set "$env_file" "MESH_PEER_SOURCE" "$peer_source"
+
+if [[ "$peer_source" == "vastai" ]]; then
+  # Discovery reads the Vast.ai account roster, so there is no peer file to
+  # write and no membership edit when an instance is preempted.
+  if [[ -n "${ODS_VAST_API_KEY:-}" ]]; then
+    env_set "$env_file" "ODS_VAST_API_KEY" "$ODS_VAST_API_KEY"
+    log "ODS_VAST_API_KEY stored in .env (mode 0660)"
+  else
+    warn "MESH_PEER_SOURCE=vastai but ODS_VAST_API_KEY is unset."
+    warn "/api/mesh/peers will return 503 until it is set. Use a key scoped to"
+    warn "instance_read only — see installers/p2p-gpu/MESH.md."
+  fi
+
+  label_prefix="${ODS_MESH_LABEL_PREFIX:-dreamreason-mesh}"
+  env_set "$env_file" "MESH_VAST_LABEL_PREFIX" "$label_prefix"
+  env_set "$env_file" "MESH_VAST_POLL_TTL_SECONDS" "${ODS_MESH_POLL_TTL:-30}"
+
+  # Vast injects CONTAINER_ID into the instance. Without it a node cannot
+  # leave itself out of its own peer list.
+  if [[ -n "${CONTAINER_ID:-}" ]]; then
+    env_set "$env_file" "CONTAINER_ID" "$CONTAINER_ID"
+  else
+    warn "CONTAINER_ID is unset — this node cannot exclude itself from its own"
+    warn "peer list. Set MESH_VAST_SELF_INSTANCE_ID in .env to the instance id."
+  fi
+
+  log "Peer discovery: Vast.ai roster, instances labelled ${label_prefix}*"
+  log "This instance must carry that label prefix or its siblings will not see it."
+else
+  peers_file="${ODS_DIR}/config/mesh-peers.json"
+  if [[ ! -f "$peers_file" ]]; then
+    example="${ODS_DIR}/config/mesh-peers.example.json"
+    [[ -f "$example" ]] && cp "$example" "${peers_file}.example" \
+      || warn "mesh-peers example not found (non-fatal)"
+    log "No config/mesh-peers.json yet — this node has no peers until you add one"
+  fi
 fi
 
 # ── Report this node's coordinates ─────────────────────────────────────────
@@ -85,7 +124,11 @@ if [[ "${!api_var:-}" == "" || "${!litellm_var:-}" == "" ]]; then
   warn "CREATED — they cannot be opened afterwards. Peers will be unreachable."
 fi
 
-log "Mesh coordinates for this node — add this entry to the OTHER nodes:"
+if [[ "$peer_source" == "vastai" ]]; then
+  log "Mesh coordinates for this node (discovered by peers, shown for debugging):"
+else
+  log "Mesh coordinates for this node — add this entry to the OTHER nodes:"
+fi
 cat <<COORDS
   {
     "hostname": "$(hostname)",
