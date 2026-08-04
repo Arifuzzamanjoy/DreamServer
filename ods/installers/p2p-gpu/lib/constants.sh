@@ -31,8 +31,11 @@ readonly PIDFILE_DIR="/var/run/ods-p2p-gpu"
 
 readonly ODS_USER="dream"
 readonly ODS_HOME="/home/${ODS_USER}"
-readonly REPO_URL="https://github.com/Osmantic/ODS.git"
-readonly REPO_BRANCH="main"
+# Overridable so a fork or feature branch can be deployed without editing this
+# file. Both were previously hardcoded, which silently deployed upstream main no
+# matter what the operator had checked out locally.
+readonly REPO_URL="${ODS_REPO_URL:-https://github.com/Osmantic/ODS.git}"
+readonly REPO_BRANCH="${ODS_REPO_BRANCH:-main}"
 readonly MIN_DISK_GB=40
 readonly MIN_VRAM_MB=8000
 readonly INSTALLER_TIMEOUT="${INSTALLER_TIMEOUT:-600}"

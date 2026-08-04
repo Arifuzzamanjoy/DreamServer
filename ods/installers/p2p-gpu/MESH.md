@@ -25,6 +25,27 @@ explicit `api_port` and `litellm_port`; the old assumption that every node uses
 mode is selected, so a normal single-instance deploy does not spend minutes
 building an image it will never run.
 
+## Deploy the right code first
+
+The installer clones a repository rather than using the checkout you run
+`setup.sh` from, and it defaults to upstream `main` — which has none of this.
+Point it at the branch you want:
+
+```bash
+export ODS_REPO_URL="https://github.com/Arifuzzamanjoy/DreamServer.git"
+export ODS_REPO_BRANCH="feat/mesh-reasoning"
+```
+
+If ODS is already installed, phase 3 reuses `/home/dream/ODS` and never
+re-clones, so the exports alone will not replace an existing checkout. Either
+remove it first, or repoint it by hand:
+
+```bash
+sudo -u dream git -C /home/dream/ODS remote set-url origin "$ODS_REPO_URL"
+sudo -u dream git -C /home/dream/ODS fetch origin "$ODS_REPO_BRANCH"
+sudo -u dream git -C /home/dream/ODS checkout "$ODS_REPO_BRANCH"
+```
+
 ## Deploy
 
 On **each** instance, as root:
