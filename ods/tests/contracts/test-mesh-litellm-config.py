@@ -84,6 +84,21 @@ def test_named_by_skill_not_hostname():
           not any(n.endswith("peer-a") for n in names))
 
 
+def test_peer_is_asked_for_a_model_it_serves():
+    # The request lands on the peer's LiteLLM, which routes by model_name.
+    # Every node registers "default"; none register their GGUF filename, so
+    # naming the file fails at the peer's gateway rather than at ours.
+    config = mesh_cfg.build_mesh_config(
+        [peer(model="Qwen3.5-9B-Q4_K_M.gguf")], "http://llama-server:8080/v1", "k")
+    entry = by_name(config)["peer-code"][0]
+    check("peer route asks for a served model name",
+          entry["litellm_params"]["model"] == "openai/default")
+    check("gguf filename is never the routing key",
+          ".gguf" not in entry["litellm_params"]["model"])
+    check("peer model still recorded for observability",
+          entry["model_info"]["ods_peer_model"] == "Qwen3.5-9B-Q4_K_M.gguf")
+
+
 def test_only_idle_peers_are_eligible():
     peers = [
         peer("a", "100.64.0.2", ("code",), "online-idle"),

@@ -13,6 +13,11 @@ services:
       - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
       - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
       - ODS_MODE=${ODS_MODE:-local}
+      # Credential this node presents to a peer's LiteLLM. mesh.yaml references
+      # it as os.environ/MESH_PEER_KEY on every peer route, so without it here
+      # every cross-node call goes out unauthenticated and the peer answers
+      # with an empty model list rather than a 401.
+      - MESH_PEER_KEY=${MESH_PEER_KEY:-}
       - ODS_MODEL_SWITCHBOARD=${ODS_MODEL_SWITCHBOARD:-observe}
       - TOKEN_SPY_URL=${TOKEN_SPY_URL:-http://token-spy:8080}
       - TOKEN_SPY_API_KEY=${TOKEN_SPY_API_KEY:-}

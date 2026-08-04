@@ -34,6 +34,9 @@ from urllib.parse import urlparse
 import yaml
 
 PEER_LITELLM_PORT = 4000
+# The model name every node's LiteLLM registers for its own llama-server, and
+# therefore the only name a peer can be asked for.
+PEER_UPSTREAM_MODEL = "default"
 ELIGIBLE_STATE = "online-idle"
 COORDINATOR_URL = "http://dreamreason:9200/v1"
 MESH_MODEL_NAME = "mesh"
@@ -66,19 +69,26 @@ def peer_entries(peer: dict, peer_key_env: str) -> list:
     """
     host = peer_host(peer)
     api_base = f"http://{host}:{peer_litellm_port(peer)}/v1"
-    upstream = peer.get("loaded_model") or "default"
     entries = []
     for skill in peer.get("skills") or []:
         entries.append({
             "model_name": f"peer-{skill}",
             "litellm_params": {
-                "model": f"openai/{upstream}",
+                # PEER_UPSTREAM_MODEL, not the peer's loaded_model. The request
+                # goes to the peer's LiteLLM, which routes by model_name, and
+                # every node registers "default" -- none register their GGUF
+                # filename. Naming the file here asks the peer for a model it
+                # does not serve, and the call fails at the peer's gateway.
+                "model": f"openai/{PEER_UPSTREAM_MODEL}",
                 "api_base": api_base,
                 "api_key": peer_key_env,
             },
             "model_info": {
                 "ods_peer": peer.get("hostname"),
                 "ods_skill": skill,
+                # Kept for observability: which model actually answers is worth
+                # knowing even though it is not the routing key.
+                "ods_peer_model": peer.get("loaded_model"),
             },
         })
     return entries
