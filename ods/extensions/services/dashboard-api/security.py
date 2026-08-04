@@ -24,6 +24,24 @@ if not DASHBOARD_API_KEY:
 
 security_scheme = HTTPBearer(auto_error=False)
 
+# Second credential accepted on protected routes, for mesh peers only.
+#
+# Without it a peer has to present this node's DASHBOARD_API_KEY, which means
+# handing every rented box the dashboard's admin credential, and it only works
+# pairwise: with three or more nodes every node would need every other node's
+# admin key. One shared mesh key is both narrower and the model MESH.md already
+# documents.
+#
+# Unset means unset. An empty value is never a valid credential, or a node that
+# simply has not configured meshing would accept an empty Bearer token from
+# anyone.
+MESH_PEER_API_KEY = os.environ.get("MESH_PEER_API_KEY") or ""
+
+
+def _accepted_keys() -> list:
+    """Credentials this node honours. Pure over the module's config."""
+    return [key for key in (DASHBOARD_API_KEY, MESH_PEER_API_KEY) if key]
+
 
 async def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security_scheme)):
     """Verify API key for protected endpoints."""
@@ -36,8 +54,13 @@ async def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(se
     # Compared as UTF-8 bytes: compare_digest raises TypeError on non-ASCII
     # str, and the presented token is attacker-controlled, so a str compare
     # turns an unauthenticated request into a 500 instead of a 403.
-    if not secrets.compare_digest(
-        credentials.credentials.encode("utf-8"), DASHBOARD_API_KEY.encode("utf-8")
-    ):
+    presented = credentials.credentials.encode("utf-8")
+    # Every candidate is checked, rather than short-circuiting on the first
+    # match, so acceptance takes the same time whichever key was presented.
+    matched = False
+    for key in _accepted_keys():
+        if secrets.compare_digest(presented, key.encode("utf-8")):
+            matched = True
+    if not matched:
         raise HTTPException(status_code=403, detail="Invalid API key.")
     return credentials.credentials
