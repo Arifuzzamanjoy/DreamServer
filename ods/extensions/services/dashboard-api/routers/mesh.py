@@ -197,7 +197,11 @@ async def probe_peer(session: aiohttp.ClientSession, peer: dict, api_key: str) -
     if base is None:
         return _unprobed(peer, "unreachable", "peer has no Tailscale IP")
 
-    headers = {"X-API-Key": api_key} if api_key else {}
+    # Bearer, because that is what the peer validates. dashboard-api guards
+    # every protected route with HTTPBearer (security.verify_api_key), and
+    # nothing there reads X-API-Key -- sending that header authenticates
+    # nothing and every peer comes back unauthorized.
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     try:
         capabilities, idle = await asyncio.gather(
             _get_json(session, f"{base}/api/node/capabilities", headers),

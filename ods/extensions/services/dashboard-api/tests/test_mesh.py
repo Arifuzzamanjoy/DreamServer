@@ -185,6 +185,41 @@ class TestPeerStatesAreDistinct:
         assert result.dns_name == "peer-a.tail.ts.net"
 
 
+class TestProbeAuthHeader:
+    """The probe must present the header the peer actually validates.
+
+    dashboard-api guards every protected route with HTTPBearer, so a probe
+    sent with X-API-Key authenticates nothing and comes back 401 -- which
+    reads as `unauthorized`, indistinguishable from a genuine key mismatch.
+    """
+
+    @staticmethod
+    def _headers_sent(api_key):
+        seen = {}
+        session = _FakeSession({
+            "/api/node/capabilities": _capabilities(),
+            "/api/gpu/idle": _idle(),
+        })
+        inner = session.get
+
+        def _capture(url, **kwargs):
+            seen.update(kwargs.get("headers") or {})
+            return inner(url, **kwargs)
+
+        session.get = _capture
+        asyncio.run(probe_peer(session, _peer(), api_key))
+        return seen
+
+    def test_sends_bearer(self):
+        assert self._headers_sent("shared")["Authorization"] == "Bearer shared"
+
+    def test_does_not_send_x_api_key(self):
+        assert "X-API-Key" not in self._headers_sent("shared")
+
+    def test_no_key_sends_no_auth_header(self):
+        assert self._headers_sent("") == {}
+
+
 class TestMeshPeersEndpoint:
     def test_requires_auth(self, test_client):
         assert test_client.get("/api/mesh/peers").status_code in (401, 403)
