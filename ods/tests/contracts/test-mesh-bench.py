@@ -15,6 +15,12 @@ _spec = importlib.util.spec_from_file_location("bench_lib", LIB)
 bl = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bl)
 
+_runner_spec = importlib.util.spec_from_file_location(
+    "run_bbh", ODS_ROOT / "scripts" / "mesh-bench" / "run-bbh.py")
+_runner = importlib.util.module_from_spec(_runner_spec)
+_runner_spec.loader.exec_module(_runner)
+bl_auth = _runner.auth_headers
+
 FAILURES = []
 
 
@@ -79,6 +85,14 @@ def test_delta_is_signed_correctly():
     check("increase is positive", bl.delta_pct(200, 100) == 100.0)
     check("reduction is negative", bl.delta_pct(50, 100) == -50.0)
     check("zero baseline does not divide by zero", bl.delta_pct(5, 0) == 0.0)
+
+
+def test_gateway_auth_is_sent():
+    """LiteLLM runs with a master key in every real deployment, so a benchmark
+    that omits it measures 401s. Caught on a live node."""
+    check("bearer header built when a key is set",
+          bl_auth("sk-abc") == {"Authorization": "Bearer sk-abc"})
+    check("no header when unset", bl_auth("") == {})
 
 
 def main():

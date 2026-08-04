@@ -24,6 +24,7 @@ against a cloud baseline price, so --price-per-mtok is opt-in.
 import argparse
 import asyncio
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -46,12 +47,19 @@ def load_task(path: Path, limit: int) -> list:
     return examples[:limit] if limit else examples
 
 
-async def run_single(client, litellm, model, question, timeout):
+def auth_headers(key: str) -> dict:
+    """Bearer header for LiteLLM. The gateway runs with a master key in every
+    real deployment, so an unauthenticated benchmark just measures 401s."""
+    return {"Authorization": f"Bearer {key}"} if key else {}
+
+
+async def run_single(client, litellm, model, question, timeout, key=""):
     """One completion straight from one model."""
     start = time.perf_counter()
     resp = await client.post(
         f"{litellm}/chat/completions",
         json={"model": model, "messages": [{"role": "user", "content": question}]},
+        headers=auth_headers(key),
         timeout=timeout,
     )
     elapsed = time.perf_counter() - start
@@ -99,7 +107,7 @@ async def run_arm(arm, examples, args) -> list:
             question = example["input"] + INSTRUCTION
             if arm == "single":
                 result = await run_single(client, args.litellm, args.single_model,
-                                          question, args.timeout)
+                                          question, args.timeout, args.litellm_key)
             else:
                 result = await run_mesh(client, args.coordinator, question,
                                         args.skills, args.timeout)
@@ -152,6 +160,8 @@ def parse_args():
     p.add_argument("--litellm", default="http://localhost:4000/v1")
     p.add_argument("--coordinator", default="http://localhost:9200")
     p.add_argument("--single-model", default="local")
+    p.add_argument("--litellm-key", default=os.environ.get("LITELLM_KEY", ""),
+                   help="LiteLLM master key; defaults to $LITELLM_KEY")
     p.add_argument("--skills", nargs="*", default=["reasoning", "logic", "general"])
     p.add_argument("--price-per-mtok", type=float, default=0.0)
     p.add_argument("--timeout", type=float, default=300.0)

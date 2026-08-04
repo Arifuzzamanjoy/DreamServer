@@ -154,9 +154,13 @@ if reply="$(answer_probe 2>/dev/null)"; then
   ok "end-to-end chat through the mesh works"
   printf '         selected=%s via=%s judge=%s\n' "$selected" "$selection" "$judged"
   printf '         answer: %s\n' "$content"
-  echo "$content" | grep -q '5' \
-    && ok "answer is correct (x=5)" \
-    || skip "answer may be wrong — small models miss this; check the text above"
+  # Match 5 as a standalone number. A substring test passes on "15", which is
+  # 3x rather than x, and reports a wrong answer as correct.
+  if echo "$content" | grep -Eq '(^|[^0-9.])5([^0-9.]|$)'; then
+    ok "answer is correct (x=5)"
+  else
+    skip "answer looks wrong (small models miss this) — see the text above"
+  fi
 else
   no "chat through the mesh failed" "docker logs ods-dreamreason; confirm peers answer"
 fi
@@ -167,6 +171,7 @@ if [[ "$RUN_BENCH" == "1" ]]; then
   if [[ ! -f bbh/logical_deduction_three_objects.json ]]; then
     bash scripts/mesh-bench/fetch-bbh.sh ./bbh
   fi
+  LITELLM_KEY="$(grep -m1 '^LITELLM_KEY=' .env | cut -d= -f2- | tr -d '"')" \
   python3 scripts/mesh-bench/run-bbh.py \
     --task bbh/logical_deduction_three_objects.json --limit "${BENCH_LIMIT:-25}" \
     --litellm "http://localhost:${LITELLM_PORT}/v1" \
