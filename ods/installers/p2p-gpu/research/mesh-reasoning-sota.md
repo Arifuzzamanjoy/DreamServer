@@ -77,6 +77,36 @@ in *heterogeneity* — which is exactly what the deck's expert-mesh diagram show
 and what a single-account Vast testbed running one GGUF everywhere does not.
 Source: https://arxiv.org/abs/2606.02646
 
+## Synthesis is not a missing feature — it is a rejected one
+
+Checked because the deck lists "Aggregate text" as a pipeline stage and the
+obvious reading is that `aggregator.py` simply has not got there yet. It has.
+The two papers its docstring cites both hold up, and both argue the other way.
+
+**When Agents Disagree: The Selection Bottleneck in Multi-Agent LLM Pipelines**
+— arXiv 2603.20324. Crosses team composition against aggregation mechanism over
+42 tasks in seven categories. A diverse pool's value *is* its variance: one
+standout candidate. Selection evaluates candidates individually and takes it;
+synthesis compresses everything into one blended response and forfeits it.
+**Selection wins in all 42 tasks, and synthesis outputs lose to a single-model
+baseline more than 80% of the time.**
+Source: https://arxiv.org/abs/2603.20324
+
+**Rethinking Mixture-of-Agents: Is Mixing Different LLMs Beneficial?** — arXiv
+2502.00674. Self-MoA, sampling only the single best model, beats mixed MoA by
+6.6% on AlpacaEval 2.0 and 3.8% averaged over MMLU, CRUX and MATH, because
+mixing lowers the pool's average quality.
+Source: https://arxiv.org/abs/2502.00674
+
+So adding synthesis to the fan-out path would likely make this mesh worse than
+running one model. "Never blends" is the evidence-backed choice, and the deck
+box should read **Select best answer**.
+
+One distinction to preserve. The finding is about blending N competing answers
+to the *same* question. Composing answers to *different* sub-questions is a
+different regime that neither paper measures, so if decomposition is built
+later, its composition step is not condemned by the 80% figure.
+
 ## Where the implementation actually sits
 
 This is the gap worth naming before any more building.
