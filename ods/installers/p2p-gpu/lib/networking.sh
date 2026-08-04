@@ -426,7 +426,7 @@ generate_powershell_tunnel_script() {
 param(
   [int]\$LocalProxyPort = ${local_proxy_port},
   [int]\$ReconnectDelay = 5,
-  [string]\$Host = "${host_ip}",
+  [string]\$RemoteHost = "${host_ip}",
   [int]\$SshPort = ${ssh_port}
 )
 
@@ -443,7 +443,7 @@ POWERSHELL_HEAD
     done
     cat << 'POWERSHELL_TAIL'
   )
-  ssh -N -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -p $SshPort @Forwards "root@$Host"
+  ssh -N -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -p $SshPort @Forwards "root@$RemoteHost"
   Write-Host "[!] Connection lost. Reconnecting in ${ReconnectDelay}s..."
   Start-Sleep -Seconds $ReconnectDelay
   if ($ReconnectDelay -lt 60) {
