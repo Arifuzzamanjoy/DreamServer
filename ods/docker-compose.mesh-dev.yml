@@ -99,3 +99,11 @@ services:
       - --parallel
       - "1"
       - --metrics
+
+# Join the running stack's network so LiteLLM can resolve these by container
+# name. Without this the peers are on an isolated default network and every
+# peer-* model resolves to nothing.
+networks:
+  default:
+    name: ods-network
+    external: true

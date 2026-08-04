@@ -84,8 +84,36 @@ def peer_entries(peer: dict, peer_key_env: str) -> list:
     return entries
 
 
+# Single-host dev peers from docker-compose.mesh-dev.yml. These are bare
+# llama-servers, so they are addressed on :8080 rather than a peer LiteLLM on
+# :4000 -- the gateway rule applies to real peers on other machines, and there
+# is no second gateway here to route through.
+DEV_PEERS = [
+    ("code", "mesh-peer-code"),
+    ("reasoning", "mesh-peer-reasoning"),
+    ("general", "mesh-peer-general"),
+]
+
+
+def dev_peer_entries() -> list:
+    """model_list entries for the local three-peer dev stack. Pure."""
+    return [
+        {
+            "model_name": f"peer-{skill}",
+            "litellm_params": {
+                "model": "openai/default",
+                "api_base": f"http://{host}:8080/v1",
+                "api_key": "not-needed",
+            },
+            "model_info": {"ods_peer": host, "ods_skill": skill, "ods_dev": True},
+        }
+        for skill, host in DEV_PEERS
+    ]
+
+
 def build_mesh_config(peers: list, local_api_base: str, peer_key_env: str,
-                      coordinator_url: str = COORDINATOR_URL) -> dict:
+                      coordinator_url: str = COORDINATOR_URL,
+                      dev_peers: bool = False) -> dict:
     """Full LiteLLM config for mesh mode. Pure.
 
     Always includes this node's own llama-server. A mesh node runs local
@@ -110,6 +138,9 @@ def build_mesh_config(peers: list, local_api_base: str, peer_key_env: str,
             },
         },
     ]
+    if dev_peers:
+        model_list.extend(dev_peer_entries())
+
     for peer in peers:
         if peer.get("state") == ELIGIBLE_STATE:
             model_list.extend(peer_entries(peer, peer_key_env))
@@ -155,6 +186,9 @@ def main() -> int:
     p.add_argument("--local-api-base", default="http://llama-server:8080/v1")
     p.add_argument("--peer-key-env", default="os.environ/MESH_PEER_KEY")
     p.add_argument("--coordinator-url", default=COORDINATOR_URL)
+    p.add_argument("--dev-peers", action="store_true",
+                   help="register the docker-compose.mesh-dev.yml peers "
+                        "(single-host testing without a second machine)")
     args = p.parse_args()
 
     if args.peers_json:
@@ -164,7 +198,7 @@ def main() -> int:
         peers = load_peers(sys.stdin)
 
     config = build_mesh_config(peers, args.local_api_base, args.peer_key_env,
-                               args.coordinator_url)
+                               args.coordinator_url, args.dev_peers)
     with open(args.output, "w") as fh:
         yaml.dump(config, fh, default_flow_style=False, sort_keys=False)
 

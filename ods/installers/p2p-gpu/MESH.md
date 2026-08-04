@@ -149,6 +149,30 @@ The full audit trail is always present on the `ods_mesh` field of the response
 for anything that inspects it, and `POST /v1/reason` on port 9200 returns it
 directly.
 
+## Testing on a single instance
+
+One node has no peers, so `mesh` has nothing to fan out to and returns 502.
+To exercise selection on one machine, run three llama-servers on the stack
+network and register them:
+
+```bash
+cd /home/dream/ods
+docker compose -f docker-compose.mesh-dev.yml up -d
+
+python3 scripts/generate-mesh-litellm-config.py --dev-peers \
+    --peers-json <(echo '{"peers":[]}') -o config/litellm/mesh.yaml
+docker restart ods-litellm ods-dreamreason
+```
+
+Those peers are bare llama-servers, so they are addressed on `:8080` rather
+than a peer LiteLLM on `:4000`. The gateway rule applies to real peers on other
+machines; there is no second gateway here to route through.
+
+Both models must already be in `data/models`:
+`Qwen3.5-2B-Q4_K_M.gguf` and `Qwen3.5-9B-Q4_K_M.gguf`. Use
+`MESH_DEV_REASONING_GGUF=Qwen3.5-2B-Q4_K_M.gguf` to run all three on the 2B if
+VRAM is tight.
+
 ## Benchmark
 
 ```bash

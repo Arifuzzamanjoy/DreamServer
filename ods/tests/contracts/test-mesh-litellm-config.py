@@ -108,6 +108,26 @@ def test_mesh_is_a_selectable_model():
           "peer" not in names["mesh"][0]["litellm_params"]["api_base"])
 
 
+def test_committed_baseline_has_the_mesh_model():
+    """Regression: the checked-in mesh.yaml was generated before the mesh entry
+    existed, so a fresh deploy had no way to reach the coordinator."""
+    import yaml
+    baseline = ODS_ROOT / "config" / "litellm" / "mesh.yaml"
+    names = {m["model_name"] for m in yaml.safe_load(baseline.read_text())["model_list"]}
+    check("shipped mesh.yaml registers 'mesh'", "mesh" in names)
+
+
+def test_dev_peers_are_addressable_on_the_stack_network():
+    entries = mesh_cfg.dev_peer_entries()
+    names = {e["model_name"] for e in entries}
+    check("three dev peers", len(entries) == 3)
+    check("named by skill", names == {"peer-code", "peer-reasoning", "peer-general"})
+    check("addressed by container name",
+          all("mesh-peer-" in e["litellm_params"]["api_base"] for e in entries))
+    check("marked as dev so they are not mistaken for real peers",
+          all(e["model_info"]["ods_dev"] for e in entries))
+
+
 def test_local_inference_always_present():
     # A mesh node contributes compute; it is not a thin client.
     names = by_name(mesh_cfg.build_mesh_config([], "http://llama-server:8080/v1", "k"))
