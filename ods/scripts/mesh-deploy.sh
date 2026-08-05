@@ -138,9 +138,15 @@ distribute_pubkeys() {
 
 rebuild_node() {
   local endpoint="$1"
+  # mode-switch is what enables the coordinator: it renames
+  # compose.yaml.disabled to compose.yaml. Setting ODS_MODE=mesh in .env is not
+  # enough on its own -- the node comes up in mesh mode with no coordinator,
+  # which looks like a working deploy until something asks it to reason.
+  #
   # dashboard-api and dreamreason bake their Python into images, so a file sync
   # alone changes nothing about what is running.
   on_node "$endpoint" "cd ${REMOTE_DIR} && \
+    bash scripts/mode-switch.sh mesh >/dev/null 2>&1; \
     docker compose -f docker-compose.base.yml build dashboard-api >/dev/null 2>&1 && \
     docker build -q -t ods-dreamreason:local extensions/services/dreamreason >/dev/null 2>&1 && \
     rm -f .compose-flags && ODS_HOME=${REMOTE_DIR} ./ods-cli restart >/dev/null 2>&1"
