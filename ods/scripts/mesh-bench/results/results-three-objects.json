@@ -1,0 +1,40 @@
+{
+  "single": {
+    "n": 30,
+    "failed": 0,
+    "accuracy": 1.0,
+    "latency_p50_s": 4.519203826999728,
+    "latency_p95_s": 7.254215342998577,
+    "latency_mean_s": 4.461476975633195,
+    "total_tokens": 10505,
+    "tokens_per_item": 350.1666666666667,
+    "cost_usd": 0.0,
+    "mean_straggler_ratio": 1.0,
+    "judge_invocations": 0,
+    "by_selection": {
+      "single": [
+        30,
+        1.0
+      ]
+    }
+  },
+  "mesh": {
+    "n": 30,
+    "failed": 0,
+    "accuracy": 1.0,
+    "latency_p50_s": 9.968333542999972,
+    "latency_p95_s": 23.407144192000487,
+    "latency_mean_s": 11.511071516266565,
+    "total_tokens": 34502,
+    "tokens_per_item": 1150.0666666666666,
+    "cost_usd": 0.0,
+    "mean_straggler_ratio": 2.4766481433052485,
+    "judge_invocations": 0,
+    "by_selection": {
+      "consensus": [
+        30,
+        1.0
+      ]
+    }
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "single": {
+    "n": 20,
+    "failed": 0,
+    "accuracy": 0.9,
+    "latency_p50_s": 15.694297940999604,
+    "latency_p95_s": 39.84240745399984,
+    "latency_mean_s": 18.03488936824997,
+    "total_tokens": 22880,
+    "tokens_per_item": 1144.0,
+    "cost_usd": 0.0,
+    "mean_straggler_ratio": 1.0,
+    "judge_invocations": 0,
+    "by_selection": {
+      "single": [
+        20,
+        0.9
+      ]
+    },
+    "oracle_accuracy": null,
+    "by_peer": {}
+  },
+  "mesh": {
+    "n": 20,
+    "failed": 0,
+    "accuracy": 1.0,
+    "latency_p50_s": 32.151972386000125,
+    "latency_p95_s": 58.2658734839988,
+    "latency_mean_s": 34.1734630839499,
+    "total_tokens": 63857,
+    "tokens_per_item": 3192.85,
+    "cost_usd": 0.0,
+    "mean_straggler_ratio": 2.023858677883824,
+    "judge_invocations": 0,
+    "by_selection": {
+      "consensus": [
+        18,
+        1.0
+      ],
+      "majority": [
+        2,
+        1.0
+      ]
+    },
+    "oracle_accuracy": 1.0,
+    "by_peer": {
+      "local": [
+        20,
+        1.0
+      ],
+      "peer-logic": [
+        20,
+        1.0
+      ],
+      "peer-reasoning": [
+        20,
+        0.9
+      ]
+    }
+  }
+}

@@ -84,7 +84,40 @@ def summarize(records: list, price_per_mtok: float = 0.0) -> dict:
         "mean_straggler_ratio": statistics.fmean(stragglers) if stragglers else 1.0,
         "judge_invocations": sum(1 for r in records if r.get("judge_invoked")),
         "by_selection": accuracy_by_selection(records),
+        "oracle_accuracy": oracle_accuracy(records),
+        "by_peer": accuracy_by_peer(records),
     }
+
+
+def oracle_accuracy(records: list):
+    """Share of items where SOME candidate was right, or None. Pure.
+
+    The ceiling selection could reach without buying another token, so it
+    splits one question into two answerable ones. Oracle at the single arm's
+    accuracy means the peers contributed no answer the local model lacked, and
+    no selector can help. Oracle above it means the right answer was bought and
+    then discarded, which is a selection problem and worth fixing.
+    """
+    scored = [r for r in records if "oracle_correct" in r]
+    if not scored:
+        return None
+    return sum(1 for r in scored if r["oracle_correct"]) / len(scored)
+
+
+def accuracy_by_peer(records: list) -> dict:
+    """{peer: (items, accuracy)} over every candidate answer. Pure.
+
+    Declared skills are labels; this is the measurement. It answers the
+    question the whole fan-out rests on -- whether any peer actually beats the
+    node that was already answering -- and it is the same quantity the
+    capability ledger accumulates from live traffic.
+    """
+    peers = {}
+    for record in records:
+        for peer, correct in (record.get("candidate_correct") or {}).items():
+            items, hits = peers.get(peer, (0, 0))
+            peers[peer] = (items + 1, hits + (1 if correct else 0))
+    return {k: (n, c / n) for k, (n, c) in sorted(peers.items())}
 
 
 def accuracy_by_selection(records: list) -> dict:

@@ -34,30 +34,55 @@ Cost is reported as $0 unless you pass `--price-per-mtok`. An all-local mesh
 has no per-token price, so tokens are the honest primary unit; dollars only
 mean something against a cloud baseline.
 
-## Results so far — read the caveat first
+## Results on real hardware
 
-Measured on this repo, 14 items of `logical_deduction_three_objects`, against
-**stub peers with synthetic latency and accuracy profiles**. No GPU or model
-weights were available.
+Three Vast.ai nodes, three different models, one GPU each. Raw output in
+`results/`.
 
-**The accuracy row is not a quality result.** The stubs were given fixed
-per-peer accuracy rates, so mesh selection improves accuracy by construction.
-It says nothing about real models. Every other row measures the real
-coordination machinery — round trips, token fan-out, straggler behaviour — and
-those numbers do transfer.
-
-| metric | single | mesh | delta |
+| node | GPU | model | role |
 |---|---|---|---|
-| accuracy | 0.357 | 0.429 | +0.071 *(stub artifact — ignore)* |
-| latency p50 (s) | 0.46 | 1.12 | **+143.4%** |
-| latency p95 (s) | 0.55 | 2.32 | **+321.6%** |
-| tokens/item | 177 | 821 | **+364.8%** |
-| straggler ratio | 1.00 | 1.72 | — |
-| judge calls | 0 | 10/14 | — |
+| vast-3060 | RTX 3060 12GB | Qwen3.5-9B-Q4_K_M | coordinator — `local` and the `single` baseline |
+| vast-3090-2 | RTX 3090 24GB | DeepSeek-R1-Distill-Qwen-32B | `peer-reasoning` |
+| vast-4090 | RTX 4090 24GB | gemma-4-31B-it-Q4_0 | `peer-logic` |
+
+The coordinator runs the **weakest** model on purpose. Whichever node
+coordinates is both `local` and the single-node baseline, so putting the
+strongest model there saturates the baseline and leaves selection nothing to
+win — which is exactly how an earlier run measured single 30/30 against mesh
+24/30.
+
+| task | items | single | mesh | delta | tokens/item | p50 latency |
+|---|---|---|---|---|---|---|
+| `logical_deduction_three_objects` | 30 | 1.000 | 1.000 | +0.000 | 350 → 1150 | 4.5s → 10.0s |
+| `logical_deduction_five_objects` | 30 | 0.967 | 1.000 | +0.033 | 793 → 2349 | 9.9s → 25.0s |
+| `logical_deduction_seven_objects` | 20 | 0.900 | 1.000 | +0.100 | 1144 → 3193 | 15.7s → 32.2s |
+
+**Do not read the deltas as wins.** On the seven-object task `local` scored
+0.900 as the `single` arm and 1.000 as a mesh candidate — the same model, the
+same twenty questions, two stochastic samples differing by two items. That
+accounts for the entire margin. With n=20 and two discordant items the result
+is not significant, and the same caveat applies to the one-item margin at five
+objects. Settling it needs greedy decoding, so `local` cannot differ between
+arms, at n >= 100.
+
+What the runs *do* establish:
+
+* The mesh never scored **below** the baseline on any task. That floor is what
+  `peer_models` exists to provide and previously did not.
+* Selection left **nothing** on the table: oracle 1.000 against mesh 1.000 at
+  seven objects. Whenever a correct answer was among the candidates it came
+  back.
+* The judge fired **zero times in 80 items**. Consensus and plurality resolved
+  everything, which is the cheap path working as designed.
+* **Declared skills are not capability.** DeepSeek-R1 scored 0.900 on
+  seven-object deduction while Gemma and the 9B both scored 1.000 — the worst
+  of the three on the task its `MESH_NODE_SKILLS=reasoning` label claims. This
+  is the premise the capability ledger acts on, now measured rather than
+  asserted.
 
 ### The result that disappoints
 
-**Token cost goes up ~4.6×, not down.** The deck's 90% cost reduction is not
+**Token cost goes up ~3.3×, not down.** The deck's 90% cost reduction is not
 achievable by this architecture, and neither is LLMRouterBench's ~32% — because
 those measure a different thing. A *router* picks one cheaper model per query
 and saves money. DreamReason *fans out*: three peers answer, and a judge reads
@@ -70,10 +95,17 @@ real but it comes from displacing cloud spend, not from the mixture-of-agents
 mechanism. Worth being precise about which claim is being made.
 
 **Latency is materially worse**, as expected — MoA trades round trips for
-quality. The straggler ratio of 1.72 shows the slowest peer taking nearly
-twice the median, which is MOSAIC's documented failure mode (arXiv 2606.03014):
-mixing instruction-tuned with long-reasoning models produces extreme
-generation-length variance, and the whole fan-out waits on the slowest.
+quality. Straggler ratio measured 2.0–2.5 across the three tasks, and the cause
+is visible per-model: on one three-object item DeepSeek-R1 spent 948 completion
+tokens reaching its answer where Gemma spent 128. That is MOSAIC's documented
+failure mode (arXiv 2606.03014) — mixing instruction-tuned with long-reasoning
+models produces extreme generation-length variance, and the whole fan-out waits
+on the slowest.
+
+It also sets a floor on `MESH_MAX_TOKENS`. At the old default of 512 the
+reasoning peer is cut off mid-thought and scores zero on every item, so the run
+would measure the cap rather than the mesh. Any mesh carrying a long-CoT model
+needs 2048.
 
 ### A bug this benchmark caught
 
@@ -87,23 +119,34 @@ Consensus now compares the *extracted answer* for structured replies and only
 falls back to text similarity for free-form ones. The corrected numbers above
 are worse than the buggy ones, because the judge now actually runs.
 
-## Getting real numbers
+## Reproducing, and what to fix in the method
 
-On a host with GPUs and weights:
+`bash scripts/mesh-deploy.sh` brings up every node in `config/mesh-nodes.conf`,
+then run the benchmark from the coordinator. Two things the runs above got
+wrong, worth fixing before trusting a next result:
 
-1. `bash scripts/mode-switch.sh mesh && ods restart`
-2. Bring up peers — real ones on the tailnet, or
-   `docker compose -f docker-compose.mesh-dev.yml up -d` on one box
-3. Regenerate peer routes:
-   `curl -s -H "Authorization: Bearer $KEY" localhost:3002/api/mesh/peers | \
-    python3 scripts/generate-mesh-litellm-config.py -o config/litellm/mesh.yaml`
-4. `ods restart litellm`
-5. Run the benchmark above with `--limit 250` for a full task
+1. **Sampling was stochastic**, so `local` could and did score differently as
+   the `single` arm than as a mesh candidate. Every reported delta is inside
+   that noise. Run both arms greedy.
+2. **n was too small.** 20–30 items puts the standard error near ±0.09, wider
+   than any margin measured. Use `--limit 250` for a full task.
 
-Expect latency to stay worse. The open question real weights answer is whether
-judge-based selection across heterogeneous peers recovers enough accuracy to
-justify ~4.6× the tokens — which is exactly the crossover threshold
-"When Agents Disagree" (arXiv 2603.20324) describes.
+Give each node different weights. Three nodes running the same model is the
+homogeneous regime where diverse-team selection scores 0.512, near chance,
+against 0.810 for genuinely different peers (arXiv 2603.20324) — fan-out buys
+nothing there and still costs the tokens.
+
+Pick tasks the aggregator can compare. `consensus_key` extracts option letters
+and yes/no/true/false/valid/invalid; anything answering with a number or free
+text falls back to comparing the prose around the answer, which scores ~0.96
+between peers that disagree and silently disables selection. `fetch-bbh.sh`
+lists only compatible tasks and says why.
+
+The open question is unchanged: whether selection across heterogeneous peers
+recovers enough accuracy to justify ~3.3× the tokens — the crossover threshold
+"When Agents Disagree" (arXiv 2603.20324) describes. These runs did not answer
+it. They established that the mesh no longer loses, which it reliably did
+before.
 
 ---
 

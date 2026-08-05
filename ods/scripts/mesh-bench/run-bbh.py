@@ -34,10 +34,34 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from bench_lib import delta_pct, is_correct, straggler_ratio, summarize  # noqa: E402
 
-INSTRUCTION = (
+MC_INSTRUCTION = (
     "\n\nAnswer with the option letter in parentheses, e.g. (A). "
     "Give the answer on the last line."
 )
+# BBH is not uniformly multiple choice. formal_fallacies answers valid/invalid,
+# web_of_lies and causal_judgement answer Yes/No, boolean_expressions answers
+# True/False -- and telling those models to reply with an option letter asks
+# for something the task has none of. The reply then scores as wrong for
+# following a bad instruction rather than for reasoning badly, on exactly the
+# hard tasks that are worth running. Both forms are ones consensus_key can
+# extract, so selection still works either way.
+WORD_INSTRUCTION = (
+    "\n\nGive the answer on the last line as a single word, using the wording "
+    "the question offers (for example: valid or invalid, Yes or No, "
+    "True or False). Put nothing else on that line."
+)
+
+
+def instruction_for(examples: list) -> str:
+    """The answer-format instruction this task needs. Pure.
+
+    Chosen from the targets rather than the task name, so a task added to the
+    fetch list gets the right instruction without anyone remembering to say so.
+    """
+    targets = {str(e["target"]).strip() for e in examples}
+    if targets and all(t.startswith("(") and t.endswith(")") for t in targets):
+        return MC_INSTRUCTION
+    return WORD_INSTRUCTION
 
 
 def load_task(path: Path, limit: int) -> list:
@@ -106,6 +130,12 @@ async def run_mesh(client, coordinator, question, skills, timeout):
         "straggler_ratio": straggler_ratio(peer_latencies),
         "judge_invoked": body.get("judge_invoked", False),
         "selection": body.get("selection"),
+        # Kept so the caller can score every candidate, not just the winner.
+        # The gap between "some candidate was right" and "the selected one was
+        # right" is the only number that says whether selection or the peers
+        # are the thing to fix.
+        "candidates": [{"peer": c.get("peer"), "answer": c.get("answer") or ""}
+                       for c in body.get("candidates", [])],
     }
 
 
@@ -119,9 +149,10 @@ async def run_arm(arm, examples, args) -> list:
     the rate is auditable rather than folded into the accuracy figure.
     """
     records = []
+    instruction = instruction_for(examples)
     async with httpx.AsyncClient() as client:
         for example in examples:
-            question = example["input"] + INSTRUCTION
+            question = example["input"] + instruction
             attempt_start = time.perf_counter()
             try:
                 if arm == "single":
@@ -142,6 +173,15 @@ async def run_arm(arm, examples, args) -> list:
                           "error": type(exc).__name__ + ": " + str(exc)[:120]}
             result["correct"] = is_correct(result["reply"], example["target"])
             result["target"] = example["target"]
+            # Score every candidate the fan-out produced. `oracle` is the
+            # ceiling a perfect selector would reach from the answers already
+            # paid for; the per-peer rates say which node earned its slot.
+            scored = {c["peer"]: is_correct(c["answer"], example["target"])
+                      for c in result.get("candidates", []) if c.get("peer")}
+            if scored:
+                result["candidate_correct"] = scored
+                result["oracle_correct"] = any(scored.values())
+            result.pop("candidates", None)
             records.append(result)
             if args.verbose:
                 mark = "OK " if result["correct"] else "XX "
@@ -194,6 +234,28 @@ def print_table(single: dict, mesh: dict, price: float):
         verdict = "" if path in ("consensus", "sole-responder") else \
             ("  <- overruled local" if accuracy < single["accuracy"] else "")
         print(f"  {path:<16} {items:>3} items  {accuracy:.3f}{verdict}")
+
+    # The ceiling, and who reached it. Without these a tie is unreadable: it
+    # looks the same whether the peers had nothing to add or whether selection
+    # threw away answers already paid for.
+    oracle = mesh.get("oracle_accuracy")
+    if oracle is not None:
+        headroom = oracle - mesh["accuracy"]
+        print(f"\noracle (any candidate correct) : {oracle:.3f}")
+        print(f"mesh selected                  : {mesh['accuracy']:.3f}"
+              f"   ({headroom:+.3f} left on the table by selection)")
+        if oracle <= single["accuracy"]:
+            print("  -> peers added no answer the local model did not already have;")
+            print("     no selector can win here. Change the peers, not the judge.")
+        elif headroom > 0.02:
+            print("  -> the right answer was bought and then discarded.")
+            print("     That is a selection problem and it is worth fixing.")
+
+    by_peer = mesh.get("by_peer") or {}
+    if by_peer:
+        print("\naccuracy per candidate (declared skills are labels; this is the measurement)")
+        for peer, (items, accuracy) in by_peer.items():
+            print(f"  {peer:<18} {items:>3} answered  {accuracy:.3f}")
 
 
 def parse_args():
