@@ -81,6 +81,42 @@ def consensus_key(text: str) -> str:
     return ""
 
 
+def majority_vote(answers: list) -> tuple:
+    """(index, votes) of the answer a plurality of candidates agree on. Pure.
+
+    Returns (None, 0) when the answers carry no comparable key, or when no key
+    is held by more than one candidate.
+
+    This exists because the judge is the weakest link. On a mesh of small
+    models the judge is no stronger than the candidates it is grading, and a
+    measured run showed it converting correct answers into wrong ones on 5 of
+    30 items. A vote needs no model at all and cannot be talked into the wrong
+    answer by a confident-sounding one.
+
+    Symphony (arXiv 2508.20019) uses weighted voting over chains of thought for
+    the same reason. This is still SELECTION -- it returns one candidate's
+    answer verbatim, never a blend -- so it stays on the right side of the
+    finding in arXiv 2603.20324 that synthesis loses.
+
+    Ties lose deliberately: two candidates saying A and two saying B is exactly
+    the disagreement a judge exists to resolve, so it is handed on rather than
+    broken arbitrarily.
+    """
+    keys = [consensus_key(a) for a in answers]
+    counts = {}
+    for key in keys:
+        if key:
+            counts[key] = counts.get(key, 0) + 1
+    if not counts:
+        return None, 0
+    best_key, votes = max(counts.items(), key=lambda kv: kv[1])
+    if votes < 2:
+        return None, 0
+    if sum(1 for v in counts.values() if v == votes) > 1:
+        return None, 0
+    return keys.index(best_key), votes
+
+
 def has_consensus(answers: list, threshold: float = DEFAULT_CONSENSUS_THRESHOLD) -> bool:
     """Whether peers agree closely enough to skip the judge. Pure.
 

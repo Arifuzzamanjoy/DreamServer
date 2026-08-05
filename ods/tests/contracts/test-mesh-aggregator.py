@@ -121,6 +121,41 @@ def test_near_identical_answers_still_agree():
     check("trivial punctuation difference still agrees", agg.has_consensus(near) is True)
 
 
+def test_majority_vote_beats_a_weak_judge():
+    """The judge is the weakest link on a mesh of small models: it is no
+    stronger than what it grades. Measured, it turned correct answers into
+    wrong ones on 5 of 30 items. A vote needs no model at all."""
+    index, votes = agg.majority_vote(["reasoning...\n(B)", "other prose\n(B)",
+                                      "different\n(C)"])
+    check(f"plurality wins ({index}, {votes})", index is not None and votes == 2)
+    check("winner is one of the agreeing candidates", index in (0, 1))
+
+
+def test_vote_is_selection_not_synthesis():
+    # Returns an index into the candidates, never new text -- so it stays on
+    # the right side of arXiv 2603.20324, where synthesis loses.
+    answers = ["long answer one\n(A)", "quite different\n(A)"]
+    index, _ = agg.majority_vote(answers)
+    check("vote returns an existing candidate", answers[index] in answers)
+
+
+def test_tie_defers_to_the_judge():
+    # Two for A and two for B is exactly the disagreement a judge exists to
+    # resolve; breaking it arbitrarily would be a coin flip wearing a hat.
+    index, _ = agg.majority_vote(["x\n(A)", "y\n(A)", "z\n(B)", "w\n(B)"])
+    check("an even split does not vote", index is None)
+
+
+def test_no_comparable_answer_defers():
+    index, _ = agg.majority_vote(["free prose here", "different free prose"])
+    check("free-form answers cannot be voted on", index is None)
+
+
+def test_lone_answer_is_not_a_majority():
+    index, _ = agg.majority_vote(["only one\n(A)"])
+    check("a single candidate is not a plurality", index is None)
+
+
 def test_fanout_is_capped():
     import coordinator  # noqa: E402  (needs sys.path above)
     check("default fan-out is 3", coordinator.effective_fanout(None) == 3)
@@ -134,7 +169,10 @@ def test_fanout_never_queries_one_peer_twice():
     models = coordinator.peer_models(["code", "reasoning", "general"],
                                      "Write a Python function to sort a list", 3)
     check(f"no duplicate peers in fan-out ({models})", len(models) == len(set(models)))
-    check("best skill leads", models[0] == "peer-code")
+    # local leads now: the node's own model is always a candidate, so the
+    # mesh competes with the single-node answer instead of replacing it.
+    check(f"local model always in the pool ({models})", models[0] == "local")
+    check("best peer skill leads among peers", models[1] == "peer-code")
     # A ceiling, not a quota. Screening is allowed to come in under budget --
     # spending the full cap on a prompt that is plainly about code is the cost
     # RouteMoA removes.
@@ -142,7 +180,14 @@ def test_fanout_never_queries_one_peer_twice():
     check("confident prompt comes in under budget", len(models) < 3)
 
     narrow = coordinator.peer_models(["code"], "Write a Python function", 3)
-    check("one skill yields one peer, not padding", narrow == ["peer-code"])
+    check("one skill yields local plus that peer, not padding",
+          narrow == ["local", "peer-code"])
+
+    # A budget of one is the local model alone: there is no slot left for a
+    # peer, and spending it on a peer instead of the node's own model is the
+    # substitution that made the mesh lose.
+    solo = coordinator.peer_models(["code"], "Write a Python function", 1)
+    check(f"budget of one is local only ({solo})", solo == ["local"])
 
 
 def test_fanout_needs_no_skills_from_the_caller():
@@ -176,12 +221,14 @@ def test_fanout_needs_no_skills_from_the_caller():
     # the waste RouteMoA screening removes.
     models = coordinator.peer_models(skills, "write a python function", 3)
     check(f"fan-out is driven by discovered skills ({models})",
-          models and all(m[len("peer-"):] in skills for m in models))
+          models and all(m == "local" or m[len("peer-"):] in skills
+                         for m in models))
     check("confidently-routed prompt reaches its skill", "peer-code" in models)
 
     # And with nothing to go on, breadth is restored.
     vague = coordinator.peer_models(skills, "what about it", 3)
-    check(f"ambiguous prompt still spans the pool ({vague})", len(vague) == 2)
+    check(f"ambiguous prompt still spans the pool ({vague})", len(vague) == 3)
+    check("local is in the ambiguous pool too", "local" in vague)
 
 
 def test_discovery_failure_degrades_instead_of_breaking():
@@ -292,10 +339,13 @@ def test_availability_decides_who_makes_the_budget():
     """Ordering must run before the budget is applied, or a busy peer keeps a
     slot an idle one should have had."""
     import coordinator  # noqa: E402
+    # Budget of 2: one slot for local, one peer slot that must go to the idle
+    # peer rather than to whichever screened first.
     models = coordinator.peer_models(
-        ["code", "reasoning", "general"], "what about it", 1,
+        ["code", "reasoning", "general"], "what about it", 2,
         idle_skills=["general"])
-    check(f"single slot goes to the idle peer ({models})", models == ["peer-general"])
+    check(f"the one peer slot goes to the idle peer ({models})",
+          models == ["local", "peer-general"])
 
 
 def main():

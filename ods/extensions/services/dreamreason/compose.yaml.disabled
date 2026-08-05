@@ -24,7 +24,21 @@ services:
       - MESH_DEFAULT_SKILLS=${MESH_DEFAULT_SKILLS:-}
       - MESH_SHOW_RATIONALE=${MESH_SHOW_RATIONALE:-false}
       - MESH_ROUTER=${MESH_ROUTER:-keyword}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Route on measured performance rather than declared skills. The ledger
+      # fills from ordinary traffic: every contested selection is one
+      # observation of who actually wins at a skill.
+      - MESH_USE_LEDGER=${MESH_USE_LEDGER:-true}
+      - MESH_LEDGER_PATH=${MESH_LEDGER_PATH:-/data/mesh-capability.json}
+      - MESH_LEDGER_MIN_OBSERVATIONS=${MESH_LEDGER_MIN_OBSERVATIONS:-5}
+      # Peers only where a specialist was confidently identified, rather than
+      # filling the budget with whoever was left.
+      - MESH_ESCALATE_ONLY=${MESH_ESCALATE_ONLY:-false}
+      - MESH_LOCAL_MODEL=${MESH_LOCAL_MODEL:-local}
+    volumes:
+      # The ledger is the only state this service keeps. Without a mount it is
+      # relearned from zero on every restart, and a routing hint that resets
+      # whenever the container cycles is not a hint.
+      - ./data:/data:z
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${DREAMREASON_PORT:-9200}:9200"
     healthcheck:

@@ -11,9 +11,18 @@ Pipeline for one query:
 
   1. skill_router picks the skill, which is the LiteLLM model name
   2. screen the peer pool from the prompt alone, before spending anything
-  3. fan out to at most MESH_FANOUT peers (default 3) via LiteLLM :4000
+  3. query this node's own model plus at most MESH_FANOUT-1 peers via :4000
   4. if the answers agree, return the consensus and skip the judge
-  5. otherwise a judge LLM selects the best answer and says why
+  5. if a plurality agree on the operative answer, take it and skip the judge
+  6. otherwise a judge LLM selects the best answer and says why
+
+Step 3 always includes the local model. Querying peers *instead of* it makes
+the mesh a replacement for the single-node answer rather than a competitor to
+it, and a peer only has to be slightly worse for the mesh to lose -- measured
+at single 30/30 against mesh 24/30 before this changed.
+
+Step 5 exists because the judge is the weakest link on a mesh of small models:
+it is no stronger than what it grades. A vote needs no model at all.
 
 Step 2 is RouteMoA's contribution (arXiv 2601.18130): score candidates from the
 query and drop the poor fits before paying for inference, rather than querying
@@ -44,10 +53,17 @@ from aggregator import (
     DEFAULT_CONSENSUS_THRESHOLD,
     build_judge_prompt,
     has_consensus,
+    majority_vote,
     pairwise_agreement,
     parse_judge_verdict,
 )
-from skill_router import route, select_candidates, select_skill
+from capability_ledger import (
+    load_ledger,
+    rank_peers,
+    record_outcome,
+    save_ledger,
+)
+from skill_router import rank_skills, select_candidates, select_skill
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("dreamreason")
@@ -69,6 +85,14 @@ MESH_MAX_TOKENS = int(os.environ.get("MESH_MAX_TOKENS", "512"))
 # keyword until semantic routing is shown to beat it on a labelled set --
 # see scripts/mesh-bench/compare-routers.py
 MESH_ROUTER = os.environ.get("MESH_ROUTER", "keyword")
+# This node's own model, as mesh.yaml names it. Always a fan-out candidate.
+LOCAL_MODEL = os.environ.get("MESH_LOCAL_MODEL", "local")
+# Peers only where a specialist was confidently identified, instead of filling
+# the budget with whoever was left. Off by default -- see peer_models.
+ESCALATE_ONLY = os.environ.get("MESH_ESCALATE_ONLY", "false").lower() == "true"
+# Route on measured performance rather than declared skills. Declarations are
+# just labels somebody typed; the ledger records who actually wins.
+USE_LEDGER = os.environ.get("MESH_USE_LEDGER", "true").lower() == "true"
 
 app = FastAPI(title="DreamReason Coordinator", version="0.1.0")
 
@@ -218,41 +242,68 @@ def order_by_availability(candidates: list, idle_skills: list) -> list:
 
 
 def peer_models(skills: list, question: str, fanout: int,
-                best: str = None, idle_skills: list = None) -> list:
-    """LiteLLM model names to query, best skill first. Pure.
+                best: str = None, idle_skills: list = None,
+                ledger: dict = None) -> list:
+    """LiteLLM model names to query, this node's own model first. Pure.
 
-    *fanout* is a budget, not a quota. select_candidates screens the pool from
-    the prompt alone and returns fewer peers when the scorer is confident, so a
-    clearly-routed question stops paying for peers already predicted to be a
-    poor fit (RouteMoA, arXiv 2601.18130). Ambiguous questions still spend the
-    whole budget.
+    LOCAL_MODEL always leads. Without it the coordinator queries peers *instead
+    of* its own model, so the mesh replaces the answer the single-node baseline
+    would have given rather than competing with it -- and a peer only has to be
+    slightly worse for the mesh to lose. Measured on three nodes: single 30/30,
+    mesh 24/30, because the node scoring 30/30 was never a candidate. With it
+    in the pool the judge can always choose it, so the mesh's floor becomes the
+    single-node result instead of sitting structurally below it. Self-MoA
+    (arXiv 2502.00674) is the same finding from the other side: repeatedly
+    sampling the strongest model beats mixing weaker ones in.
+
+    *fanout* is a budget covering local plus peers, not a peer count.
+    select_candidates screens from the prompt alone, so a clearly-routed
+    question stops paying for peers already predicted to be a poor fit
+    (RouteMoA, arXiv 2601.18130).
 
     Screening decides who is worth asking; *idle_skills* decides who is asked
-    first when the budget cannot cover them all. Fit and availability are
-    different questions and are answered by different sources.
+    first when the budget cannot cover them all.
 
     Deduplicated: querying one peer twice wastes a slot and hands the judge two
     identical candidates, which biases selection toward whichever peer happened
     to be duplicated.
     """
-    if not skills:
-        return [route(question)] if best is None else [f"peer-{best}"]
+    models = [LOCAL_MODEL]
+    if not skills or fanout <= 1:
+        return models
 
     # Screen on fit across the whole pool before applying the budget, so
     # availability decides *which* peers make the cut and not merely their
     # order inside an already-truncated list. The budget is applied below.
     candidates = order_by_availability(
         select_candidates(question, skills, len(skills)), idle_skills or [])
+
+    # Reorder on evidence. A peer measured as losing this skill drops behind
+    # one nobody has tried, so declarations stop being the last word and a
+    # peer that keeps losing stops being asked.
+    if USE_LEDGER and ledger is not None:
+        candidates = rank_peers(ledger, candidates, best or (candidates[0] if candidates else ""))
     # A semantic pick comes from embeddings rather than the keyword scorer, so
     # it may not be in the screened set. The caller's choice still leads.
     if best is not None and best in skills:
         candidates = [best] + [s for s in candidates if s != best]
 
-    models = []
-    for skill in candidates[:fanout]:
+    # Escalation rather than replacement. When on, peers are added only where
+    # the scorer confidently identified a specialist, so an ambiguous question
+    # is answered locally instead of being handed to peers that were picked for
+    # want of a better idea. Off by default: breadth is still the right hedge
+    # when nothing scores, and the local model is in the pool either way now.
+    if ESCALATE_ONLY:
+        confident = select_candidates(question, skills, len(skills))
+        ranked = {skill for skill, _ in rank_skills(question)}
+        candidates = [s for s in candidates if s in ranked and s in confident]
+
+    for skill in candidates:
         name = f"peer-{skill}"
         if name not in models:
             models.append(name)
+        if len(models) >= fanout:
+            break
     return models
 
 
@@ -313,6 +364,30 @@ async def ask_peer(client: httpx.AsyncClient, model: str, question: str) -> dict
     }
 
 
+async def record_selection(ledger: dict, winner: str, candidates: list,
+                           skill: str) -> None:
+    """Record one contest: *winner* beat the other *candidates* at *skill*.
+
+    Every selection is an observation, so the ledger fills from ordinary
+    traffic rather than needing a separate evaluation run. Only contested
+    selections teach anything -- a sole responder beat nobody -- so those are
+    skipped rather than recorded as a win.
+
+    A failed write is logged and swallowed at this one point deliberately: the
+    ledger is a routing hint, and losing an observation must not cost the
+    caller an answer they already have in hand.
+    """
+    if not skill or len(candidates) < 2:
+        return
+    updated = ledger
+    for peer in candidates:
+        updated = record_outcome(updated, peer, skill, peer == winner)
+    try:
+        await asyncio.to_thread(save_ledger, updated)
+    except OSError as exc:
+        logger.warning("could not persist capability ledger: %s", exc)
+
+
 async def run_judge(client: httpx.AsyncClient, question: str, candidates: list) -> tuple:
     """Ask the judge to select a candidate. Returns (index, reason, tokens)."""
     prompt = build_judge_prompt(question, candidates)
@@ -360,8 +435,9 @@ async def run_mesh(request: ReasonRequest) -> ReasonResponse:
         skills = request.skills or await discover_peer_skills(client)
         idle_skills = await discover_idle_skills(client)
         best = await resolve_skill(client, request.question, skills)
+        ledger = await asyncio.to_thread(load_ledger) if USE_LEDGER else None
         models = peer_models(skills, request.question, fanout, best=best,
-                             idle_skills=idle_skills)
+                             idle_skills=idle_skills, ledger=ledger)
         results = await asyncio.gather(
             *(ask_peer(client, model, request.question) for model in models)
         )
@@ -404,9 +480,35 @@ async def run_mesh(request: ReasonRequest) -> ReasonResponse:
                 total_tokens=tokens,
             )
 
+        # Vote before judging. The judge is the weakest link on a mesh of
+        # small models -- it is no stronger than what it grades -- so where a
+        # plurality already agrees on the operative answer, asking it adds a
+        # chance to be wrong and buys nothing.
+        vote_index, votes = majority_vote(answers)
+        if vote_index is not None:
+            if USE_LEDGER and ledger is not None:
+                await record_selection(ledger, answered[vote_index]["peer"],
+                                       [a["peer"] for a in answered], best)
+            return ReasonResponse(
+                answer=answered[vote_index]["answer"],
+                selected_peer=answered[vote_index]["peer"],
+                selection="majority",
+                justification=(
+                    f"{votes} of {len(answers)} candidates agreed on the same "
+                    f"answer; judge skipped."
+                ),
+                agreement=agreement,
+                candidates=results,
+                judge_invoked=False,
+                total_tokens=tokens,
+            )
+
         index, reason_text, judge_tokens = await run_judge(
             client, request.question, answered)
         tokens += judge_tokens
+        if USE_LEDGER and ledger is not None:
+            await record_selection(ledger, answered[index]["peer"],
+                                   [a["peer"] for a in answered], best)
 
     return ReasonResponse(
         answer=answered[index]["answer"],
