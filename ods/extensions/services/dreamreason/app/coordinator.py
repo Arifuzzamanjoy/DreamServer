@@ -184,20 +184,29 @@ DASHBOARD_API_URL = os.environ.get("MESH_DASHBOARD_API_URL", "http://dashboard-a
 MESH_API_KEY = (os.environ.get("MESH_PEER_API_KEY", "")
                 or os.environ.get("DASHBOARD_API_KEY", ""))
 IDLE_STATE = "online-idle"
-_peer_state: dict = {"expires": 0.0, "idle_skills": []}
+EMPTY_PEER_STATE = {"idle_skills": [], "skill_owner": {}}
+_peer_state: dict = {"expires": 0.0, **EMPTY_PEER_STATE}
 
 
-async def discover_idle_skills(client: httpx.AsyncClient) -> list:
-    """Skills served by at least one peer that is idle right now.
+async def discover_peer_state(client: httpx.AsyncClient) -> dict:
+    """Which skills are idle right now, and which node serves each.
 
-    Degrades to an empty list rather than raising, matching
-    discover_peer_skills: availability is an ordering hint over routing, so
-    losing it should cost peer preference, not the answer. Logged so the
-    degradation is visible instead of silently becoming round-robin.
+    Both come from one call because they come from one fact -- the peer list --
+    and splitting them into two fetches would let a node be idle under one key
+    and busy under the other.
+
+    `skill_owner` exists because a node may advertise several skills, and
+    `peer-writing` and `peer-logic` are then two LiteLLM routes to one
+    llama-server. Fan-out has to be able to tell that apart from two nodes.
+
+    Degrades to empty rather than raising, matching discover_peer_skills:
+    availability is an ordering hint over routing, so losing it should cost
+    peer preference, not the answer. Logged so the degradation is visible
+    instead of silently becoming round-robin.
     """
     now = time.monotonic()
     if now < _peer_state["expires"]:
-        return _peer_state["idle_skills"]
+        return _peer_state
 
     headers = {"Authorization": f"Bearer {MESH_API_KEY}"} if MESH_API_KEY else {}
     try:
@@ -205,25 +214,37 @@ async def discover_idle_skills(client: httpx.AsyncClient) -> list:
                                 headers=headers, timeout=10.0)
     except httpx.TimeoutException:
         logger.warning("peer state timed out; routing without idleness")
-        return []
+        return dict(EMPTY_PEER_STATE)
     except httpx.ConnectError as exc:
         logger.warning("peer state unreachable (%s); routing without idleness", exc)
-        return []
+        return dict(EMPTY_PEER_STATE)
 
     if resp.status_code >= 400:
         logger.warning("peer state got HTTP %s; routing without idleness",
                        resp.status_code)
-        return []
+        return dict(EMPTY_PEER_STATE)
 
+    peers = resp.json().get("peers", [])
     idle = sorted({
         skill
-        for peer in resp.json().get("peers", [])
+        for peer in peers
         if peer.get("state") == IDLE_STATE
         for skill in (peer.get("skills") or [])
     })
-    _peer_state.update({"expires": now + PEER_STATE_TTL, "idle_skills": idle})
-    logger.info("%d idle skill(s): %s", len(idle), ", ".join(idle) or "none")
-    return idle
+    # Last writer wins when two nodes advertise one skill: mesh.yaml already
+    # load-balances that case across both, so either is a truthful owner and
+    # neither should be able to claim a second slot on its own.
+    owner = {
+        skill: peer.get("hostname")
+        for peer in peers
+        for skill in (peer.get("skills") or [])
+        if peer.get("hostname")
+    }
+    _peer_state.update({"expires": now + PEER_STATE_TTL,
+                        "idle_skills": idle, "skill_owner": owner})
+    logger.info("%d idle skill(s): %s across %d node(s)",
+                len(idle), ", ".join(idle) or "none", len(set(owner.values())))
+    return _peer_state
 
 
 def order_by_availability(candidates: list, idle_skills: list) -> list:
@@ -243,7 +264,7 @@ def order_by_availability(candidates: list, idle_skills: list) -> list:
 
 def peer_models(skills: list, question: str, fanout: int,
                 best: str = None, idle_skills: list = None,
-                ledger: dict = None) -> list:
+                ledger: dict = None, skill_owner: dict = None) -> list:
     """LiteLLM model names to query, this node's own model first. Pure.
 
     LOCAL_MODEL always leads. Without it the coordinator queries peers *instead
@@ -264,9 +285,17 @@ def peer_models(skills: list, question: str, fanout: int,
     Screening decides who is worth asking; *idle_skills* decides who is asked
     first when the budget cannot cover them all.
 
-    Deduplicated: querying one peer twice wastes a slot and hands the judge two
-    identical candidates, which biases selection toward whichever peer happened
-    to be duplicated.
+    Deduplicated twice over, because there are two ways to ask one node twice.
+    The same model name is the obvious one. The other is a node advertising
+    several skills: `peer-writing` and `peer-logic` are two LiteLLM routes to
+    one llama-server, so a node listed as `writing,logic` took two of three
+    fan-out slots and cast two of three votes -- outvoting the local model on
+    its own. Name-level dedup cannot see it; *skill_owner* maps each skill to
+    the hostname serving it, so one node gets one slot.
+
+    A skill with no known owner is kept rather than dropped. Ownership comes
+    from dashboard-api and fan-out must survive losing it, so an unknown owner
+    means "cannot prove this is a duplicate", not "assume it is".
     """
     models = [LOCAL_MODEL]
     if not skills or fanout <= 1:
@@ -298,10 +327,16 @@ def peer_models(skills: list, question: str, fanout: int,
         ranked = {skill for skill, _ in rank_skills(question)}
         candidates = [s for s in candidates if s in ranked and s in confident]
 
+    owners = skill_owner or {}
+    claimed = set()
     for skill in candidates:
         name = f"peer-{skill}"
-        if name not in models:
-            models.append(name)
+        owner = owners.get(skill)
+        if name in models or (owner and owner in claimed):
+            continue
+        models.append(name)
+        if owner:
+            claimed.add(owner)
         if len(models) >= fanout:
             break
     return models
@@ -364,6 +399,25 @@ async def ask_peer(client: httpx.AsyncClient, model: str, question: str) -> dict
     }
 
 
+def ledger_key(model: str) -> str:
+    """The ledger's name for LiteLLM model *model*. Pure.
+
+    Selections are observed under model names (`local`, `peer-logic`), but
+    routing ranks bare skill names (`logic`) because that is what
+    select_candidates produces. mesh.yaml derives one from the other --
+    `model_name: peer-{skill}` -- so dropping the prefix names the same peer
+    under both, rather than guessing at a mapping.
+
+    Without this the two halves never met: every selection wrote
+    `peer-logic::logic` while every lookup read `logic::logic`, so rank_peers
+    saw the unmeasured 0.5 for every peer forever and the ledger could not
+    move a single route. The bug was invisible because both halves worked --
+    observations accumulated on disk, ranking ran on every request, and the
+    two simply never referred to the same peer.
+    """
+    return model[len("peer-"):] if model.startswith("peer-") else model
+
+
 async def record_selection(ledger: dict, winner: str, candidates: list,
                            skill: str) -> None:
     """Record one contest: *winner* beat the other *candidates* at *skill*.
@@ -373,6 +427,11 @@ async def record_selection(ledger: dict, winner: str, candidates: list,
     selections teach anything -- a sole responder beat nobody -- so those are
     skipped rather than recorded as a win.
 
+    LOCAL_MODEL is recorded alongside the peers even though it is never ranked
+    -- it leads the pool unconditionally. Its win rate is the answer to the
+    question this whole design turns on: whether any peer actually beats the
+    node already answering. Dropping it would leave that unmeasurable.
+
     A failed write is logged and swallowed at this one point deliberately: the
     ledger is a routing hint, and losing an observation must not cost the
     caller an answer they already have in hand.
@@ -381,7 +440,8 @@ async def record_selection(ledger: dict, winner: str, candidates: list,
         return
     updated = ledger
     for peer in candidates:
-        updated = record_outcome(updated, peer, skill, peer == winner)
+        updated = record_outcome(updated, ledger_key(peer), skill,
+                                 peer == winner)
     try:
         await asyncio.to_thread(save_ledger, updated)
     except OSError as exc:
@@ -433,11 +493,12 @@ async def run_mesh(request: ReasonRequest) -> ReasonResponse:
         # Caller-supplied skills win; otherwise ask LiteLLM what it serves, so
         # a plain chat turn still fans out across every registered peer.
         skills = request.skills or await discover_peer_skills(client)
-        idle_skills = await discover_idle_skills(client)
+        state = await discover_peer_state(client)
         best = await resolve_skill(client, request.question, skills)
         ledger = await asyncio.to_thread(load_ledger) if USE_LEDGER else None
         models = peer_models(skills, request.question, fanout, best=best,
-                             idle_skills=idle_skills, ledger=ledger)
+                             idle_skills=state["idle_skills"], ledger=ledger,
+                             skill_owner=state["skill_owner"])
         results = await asyncio.gather(
             *(ask_peer(client, model, request.question) for model in models)
         )

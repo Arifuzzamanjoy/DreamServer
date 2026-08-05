@@ -140,6 +140,46 @@ def test_best_skill_survives_screening():
               best in sr.select_candidates(prompt, ALL_SKILLS, 3))
 
 
+def test_prose_about_a_topic_is_not_a_writing_task():
+    """Regression, measured on a live three-node mesh.
+
+    BBH's logical-deduction preamble opens "The following paragraphs each
+    describe a set of three objects". `paragraph` was a weight-2 rule -- the
+    table's own definition of "strongly diagnostic on its own" -- so every item
+    on the benchmark scored 2 for `writing`. That met CONFIDENT_SCORE, so
+    select_candidates narrowed the pool to `['writing']`: a logic puzzle was
+    confidently routed to the writing node, the logic node was never asked, and
+    the mesh lost the benchmark being used to evaluate it.
+
+    The property: a noun naming a body of text is not a writing task. Only a
+    verb acting on one is.
+    """
+    bbh = ("The following paragraphs each describe a set of three objects "
+           "arranged in a fixed order. The statements are logically consistent "
+           "within each paragraph. In a golf tournament there were three "
+           "golfers. Eve finished above Amy. Eli finished below Amy.")
+    scored = dict(sr.rank_skills(bbh))
+    check(f"a logic puzzle does not score as writing ({scored})",
+          scored.get("writing", 0) < sr.CONFIDENT_SCORE)
+
+    # The live mesh's peer set, which is what made the misroute reachable.
+    served = ["reasoning", "logic", "general", "writing"]
+    picked = sr.select_candidates(bbh, served, 3)
+    check(f"the pool is not narrowed to the writing node ({picked})",
+          picked != ["writing"] and picked[0] != "writing")
+    check(f"an unrouted prompt still spends its budget on breadth ({picked})",
+          len(picked) == 3)
+    check(f"the logic peer is reachable again ({picked})", "logic" in picked)
+
+    # The other half of the property: acting on a paragraph still routes to
+    # writing, so the fix narrows the rule rather than deleting the signal.
+    for prompt in ("Rewrite this paragraph in a warmer tone",
+                   "Summarise this article in three sentences",
+                   "Shorten the second paragraph"):
+        check(f"{prompt[:34]!r} still routes to writing",
+              sr.select_skill(prompt, ALL_SKILLS) == "writing")
+
+
 def main():
     print("=== DreamReason skill router contract ===")
     for name, fn in sorted(globals().items()):

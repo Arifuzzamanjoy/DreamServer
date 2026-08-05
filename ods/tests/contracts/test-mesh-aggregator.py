@@ -190,6 +190,71 @@ def test_fanout_never_queries_one_peer_twice():
     check(f"budget of one is local only ({solo})", solo == ["local"])
 
 
+def test_one_node_gets_one_slot():
+    """Regression: a multi-skill node was answering twice in one fan-out.
+
+    `MESH_NODE_SKILLS=writing,logic` publishes `peer-writing` and `peer-logic`,
+    two LiteLLM routes to one llama-server. Dedup on model name saw two names
+    and let both in, so that single node filled two of three slots and cast two
+    of three votes -- enough to outvote the local model by itself. Two of the
+    four nodes on the measured roster were configured this way.
+
+    The property: fan-out slots are nodes, not names.
+    """
+    import coordinator  # noqa: E402
+
+    skills = ["writing", "logic", "code"]
+    one_node_two_skills = {"writing": "vast-3060a", "logic": "vast-3060a",
+                           "code": "vast-3090"}
+
+    models = coordinator.peer_models(skills, "what about it", 3,
+                                     skill_owner=one_node_two_skills)
+    check(f"one node cannot take two slots ({models})",
+          not ("peer-writing" in models and "peer-logic" in models))
+    check(f"the second node is still reached ({models})", "peer-code" in models)
+    check("local still leads", models[0] == "local")
+
+    # Without ownership the coordinator cannot prove a duplicate, and guessing
+    # would shrink fan-out on every mesh whose dashboard-api is unreachable.
+    unknown = coordinator.peer_models(skills, "what about it", 3)
+    check(f"unknown ownership does not shrink fan-out ({unknown})",
+          len(unknown) == 3)
+
+
+def test_peer_state_maps_skills_to_nodes():
+    """The owner map and the idle set must come from one read of one list."""
+    import asyncio
+    import coordinator  # noqa: E402
+
+    class FakeResp:
+        status_code = 200
+        @staticmethod
+        def json():
+            return {"peers": [
+                {"hostname": "vast-3060a", "state": "online-idle",
+                 "skills": ["writing", "logic"]},
+                {"hostname": "vast-3090", "state": "online-busy",
+                 "skills": ["code"]},
+            ]}
+
+    class FakeClient:
+        async def get(self, *a, **k):
+            return FakeResp()
+
+    coordinator._peer_state.update({"expires": 0.0, "idle_skills": [],
+                                    "skill_owner": {}})
+    state = asyncio.run(coordinator.discover_peer_state(FakeClient()))
+    check(f"idle skills read from the peer list ({state['idle_skills']})",
+          state["idle_skills"] == ["logic", "writing"])
+    check("both skills resolve to the one node serving them",
+          state["skill_owner"]["writing"] == state["skill_owner"]["logic"]
+          == "vast-3060a")
+    check("a busy node still owns its skill",
+          state["skill_owner"]["code"] == "vast-3090")
+    coordinator._peer_state.update({"expires": 0.0, "idle_skills": [],
+                                    "skill_owner": {}})
+
+
 def test_fanout_needs_no_skills_from_the_caller():
     """Regression caught on a live node: a chat client never sends skills, and
     without them peer_models returned a single model. Fan-out and selection

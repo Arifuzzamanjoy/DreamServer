@@ -80,8 +80,21 @@ SKILL_RULES = {
         (1, r"\bwhat would happen\b"),
     ],
     "writing": [
-        (2, r"\b(essay|paragraph|blog post|article)\b"),
+        (2, r"\b(essay|blog post)\b"),
         (2, r"\b(rewrite|paraphrase|proofread)\b"),
+        # `paragraph` and `article` only indicate a writing task when something
+        # is being done TO one. As bare nouns they appear in any prompt that
+        # carries a body of text, and BBH's standard preamble -- "The following
+        # paragraphs each describe a set of three objects" -- scored a
+        # diagnostic 2 on every logical-deduction item. With a `writing` peer
+        # registered, select_candidates then narrowed the pool to it alone, so
+        # a logic puzzle went to the writing node and the logic node was never
+        # asked. Measured, not hypothetical: this is why the mesh lost the
+        # benchmark it was being evaluated on.
+        (2, r"\b(?:re)?writ(?:e|ing)\b[^.?!]{0,60}\b(?:paragraphs?|articles?)\b"),
+        (2, r"\b(?:revise|redraft|draft|compose|edit|polish|proofread"
+            r"|paraphrase|summari[sz]e|shorten|tighten|condense|expand)\b"
+            r"[^.?!]{0,60}\b(?:paragraphs?|articles?)\b"),
         (1, r"\b(summari[sz]e|draft|compose)\b"),
         (1, r"\b(tone|style|prose)\b"),
     ],

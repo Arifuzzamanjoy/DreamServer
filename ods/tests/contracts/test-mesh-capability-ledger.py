@@ -137,6 +137,55 @@ def test_save_is_atomic():
         check("final write is readable", json.loads(path.read_text())["entries"])
 
 
+def test_a_recorded_loss_actually_reorders_the_fanout():
+    """Regression: the ledger was write-only for its whole first release.
+
+    Every check above passes against a ledger nothing reads. record_selection
+    observed LiteLLM model names (`peer-logic`) while peer_models ranked bare
+    skill names (`logic`), so the two halves referred to different peers and
+    rank_peers scored everything at the unmeasured 0.5 forever. Both sides
+    worked; they simply never met.
+
+    So this check spans them. It records losses the way the coordinator does,
+    then asserts the fan-out it produces actually changed -- the only statement
+    that distinguishes a working ledger from a decorative one.
+    """
+    import asyncio
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("coordinator", APP / "coordinator.py")
+    coordinator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(coordinator)
+
+    skills = ["reasoning", "logic"]
+    question = "what about it"  # deliberately unrouted: the ledger decides, not keywords
+    baseline = coordinator.peer_models(skills, question, 3, best="logic",
+                                       ledger=cl.empty_ledger())
+
+    # Exactly what run_mesh records: model names, local among them.
+    led = cl.empty_ledger()
+    for _ in range(cl.MIN_OBSERVATIONS + 1):
+        asyncio.run(coordinator.record_selection(
+            led, "peer-reasoning", ["local", "peer-reasoning", "peer-logic"], "logic"))
+        led = cl.record_outcome(led, "reasoning", "logic", True)
+        led = cl.record_outcome(led, "logic", "logic", False)
+
+    check("selections are recorded in the namespace routing reads",
+          cl.score(led, "logic", "logic") < 0.5 < cl.score(led, "reasoning", "logic"))
+
+    ranked = coordinator.peer_models(skills, question, 3, best=None, ledger=led)
+    check(f"the measured loser stops leading ({baseline} -> {ranked})",
+          ranked.index("peer-reasoning") < ranked.index("peer-logic"))
+    check("local still leads regardless of the ledger", ranked[0] == "local")
+
+    # ledger_key is the join between the two namespaces; assert it directly so
+    # a future rename fails here rather than silently going quiet again.
+    check("peer models map onto skill names",
+          coordinator.ledger_key("peer-logic") == "logic")
+    check("the local model is not renamed",
+          coordinator.ledger_key("local") == "local")
+
+
 def main():
     print("=== DreamReason capability ledger contract ===")
     for name, fn in sorted(globals().items()):
