@@ -51,6 +51,10 @@ ods/.env.*
 ods/data/
 ods/models/
 ods/config/openclaw/workspace/
+# Mesh operational config: real host addresses, SSH ports and peer
+# endpoints. The .example files next to them are the tracked ones.
+ods/config/mesh-nodes.conf
+ods/config/mesh-peers.json
 ods/**/node_modules/
 ods/**/dist/
 ods/**/.coverage

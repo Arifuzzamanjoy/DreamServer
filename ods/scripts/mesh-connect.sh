@@ -99,15 +99,44 @@ cmd_init() {
   info "then run: bash scripts/mesh-connect.sh up"
 }
 
+# GPU access inside running containers, as dashboard-api sees it. Checked
+# because `systemctl daemon-reload` re-evaluates device cgroup rules and can
+# strip the nvidia devices from containers that are already running: nvidia-smi
+# then fails with "Failed to initialize NVML" and every peer reports gpu: null
+# and an idle check of 503, while the host's own nvidia-smi is perfectly fine.
+gpu_visible_in_containers() {
+  docker exec ods-dashboard-api nvidia-smi --query-gpu=name \
+    --format=csv,noheader >/dev/null 2>&1
+}
+
+# Repair what a daemon-reload broke. Restarting the container re-applies the
+# device cgroup rules; nothing less does.
+restore_container_gpu() {
+  local c
+  for c in ods-dashboard-api ods-llama-server; do
+    docker restart "$c" >/dev/null 2>&1 || warn_restart "$c"
+  done
+  sleep 8
+}
+
+warn_restart() { no "could not restart ${1}"; }
+
 # One systemd unit per peer. Restart=always is the point: a tunnel that dies
 # silently is indistinguishable from a peer that went away.
+#
+# Returns 0 when the unit on disk already matches, so the caller can skip the
+# daemon-reload entirely on a re-run. That matters more than it looks: a reload
+# is what breaks container GPU access, and re-running this script is the normal
+# way to add a node.
 write_unit() {
   local name="$1" endpoint="$2" api_port="$3" litellm_port="$4"
-  local user_host ssh_port
+  local user_host ssh_port target tmp
   user_host="${endpoint%%:*}"
   ssh_port="${endpoint##*:}"
+  target="/etc/systemd/system/${UNIT_PREFIX}@${name}.service"
+  tmp="$(mktemp)"
 
-  cat > "/etc/systemd/system/${UNIT_PREFIX}@${name}.service" <<UNIT
+  cat > "$tmp" <<UNIT
 [Unit]
 Description=ODS mesh tunnel to ${name}
 After=network-online.target docker.service
@@ -127,15 +156,23 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 UNIT
+
+  if [[ -f "$target" ]] && cmp -s "$tmp" "$target"; then
+    rm -f "$tmp"
+    return 1   # unchanged
+  fi
+  mv "$tmp" "$target"
+  return 0     # changed, caller must reload
 }
 
 cmd_up() {
   require_roster
   [[ -f "$KEY_FILE" ]] || { no "no key — run 'mesh-connect.sh init' first"; exit 1; }
 
-  local me gateway failures=0 index=0
+  local me gateway failures=0 index=0 units_changed=0 reloaded=0 gpu_before=0
   me="$(self_name)"
   gateway="$(docker_gateway)"
+  gpu_visible_in_containers && gpu_before=1
 
   head_ "Roster"
   if [[ -n "$me" ]]; then
@@ -147,16 +184,24 @@ cmd_up() {
 
   head_ "Tunnels"
   local peers_json="" name endpoint api_port litellm_port
-  while read -r name endpoint; do
+  while read -r name endpoint _; do
     api_port=$((API_BASE + index))
     litellm_port=$((LITELLM_BASE + index))
     index=$((index + 1))
 
     [[ "$name" == "$me" ]] && { info "${name}: self, skipped"; continue; }
 
-    write_unit "$name" "$endpoint" "$api_port" "$litellm_port"
-    systemctl daemon-reload
-    systemctl enable --now "${UNIT_PREFIX}@${name}.service" >/dev/null 2>&1 \
+    # Reload only when a unit actually changed, and only once for the whole
+    # roster. Each reload risks the container GPU cgroups, so the common case
+    # of re-running with an unchanged roster must not reload at all.
+    if write_unit "$name" "$endpoint" "$api_port" "$litellm_port"; then
+      units_changed=1
+    fi
+    if [[ "$units_changed" == "1" && "$reloaded" == "0" ]]; then
+      systemctl daemon-reload
+      reloaded=1
+    fi
+    systemctl enable "${UNIT_PREFIX}@${name}.service" >/dev/null 2>&1 \
       || warn_unit "$name"
     systemctl restart "${UNIT_PREFIX}@${name}.service"
 
@@ -176,6 +221,31 @@ cmd_up() {
   head_ "Peer file"
   printf '{"peers":[%s]}\n' "${peers_json%,}" > "$PEERS_FILE"
   ok "wrote ${PEERS_FILE}"
+
+  # Cause-agnostic on purpose. Measured on a live node: `systemctl
+  # daemon-reload` strips the nvidia device cgroups from running containers,
+  # and so does `systemctl restart`/`enable` of an unrelated unit -- this
+  # script cannot avoid systemd, so it repairs instead of dodging.
+  #
+  # Left unrepaired the node keeps serving but reports gpu: null and answers
+  # the idle check with 503, so every peer sees it as `error` and the config
+  # generator drops it: a node that looks healthy locally and is invisible to
+  # the mesh.
+  #
+  # The permanent fix is host-level -- Docker's cgroup driver and
+  # nvidia-container-runtime's cgroup handling -- and belongs in the installer,
+  # not in a script that forms tunnels.
+  if [[ "$gpu_before" == "1" ]] && ! gpu_visible_in_containers; then
+    head_ "GPU access"
+    info "systemd dropped the container GPU cgroups — restarting to restore"
+    restore_container_gpu
+    if gpu_visible_in_containers; then
+      ok "GPU access restored"
+    else
+      no "GPU still not visible — check 'docker exec ods-dashboard-api nvidia-smi'"
+      failures=$((failures + 1))
+    fi
+  fi
 
   head_ "Next"
   info "regenerate routes and reload LiteLLM:"
@@ -202,7 +272,7 @@ cmd_status() {
   local me index=0 name endpoint api_port state code
   me="$(self_name)"
   head_ "Mesh tunnels"
-  while read -r name endpoint; do
+  while read -r name endpoint _; do
     api_port=$((API_BASE + index))
     index=$((index + 1))
     [[ "$name" == "$me" ]] && continue
@@ -220,7 +290,7 @@ cmd_down() {
   require_roster
   head_ "Stopping tunnels"
   local name endpoint
-  while read -r name endpoint; do
+  while read -r name endpoint _; do
     if systemctl is-enabled "${UNIT_PREFIX}@${name}.service" >/dev/null 2>&1; then
       systemctl disable --now "${UNIT_PREFIX}@${name}.service" >/dev/null 2>&1
       rm -f "/etc/systemd/system/${UNIT_PREFIX}@${name}.service"
