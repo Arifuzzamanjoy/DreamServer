@@ -53,12 +53,23 @@ def auth_headers(key: str) -> dict:
     return {"Authorization": f"Bearer {key}"} if key else {}
 
 
-async def run_single(client, litellm, model, question, timeout, key=""):
-    """One completion straight from one model."""
+async def run_single(client, litellm, model, question, timeout, key="",
+                     max_tokens=0):
+    """One completion straight from one model.
+
+    *max_tokens* must match the coordinator's MESH_MAX_TOKENS. The mesh caps
+    every peer at 512 by default while this arm was uncapped, so a reasoning
+    model that ran long finished its answer for `single` and was truncated
+    before the final line for `mesh` -- scoring the cap, not the mesh. Two arms
+    under different generation budgets do not compare.
+    """
+    payload = {"model": model, "messages": [{"role": "user", "content": question}]}
+    if max_tokens > 0:
+        payload["max_tokens"] = max_tokens
     start = time.perf_counter()
     resp = await client.post(
         f"{litellm}/chat/completions",
-        json={"model": model, "messages": [{"role": "user", "content": question}]},
+        json=payload,
         headers=auth_headers(key),
         timeout=timeout,
     )
@@ -115,7 +126,8 @@ async def run_arm(arm, examples, args) -> list:
             try:
                 if arm == "single":
                     result = await run_single(client, args.litellm, args.single_model,
-                                              question, args.timeout, args.litellm_key)
+                                              question, args.timeout, args.litellm_key,
+                                              args.max_tokens)
                 else:
                     result = await run_mesh(client, args.coordinator, question,
                                             args.skills, args.timeout)
@@ -174,6 +186,15 @@ def print_table(single: dict, mesh: dict, price: float):
         print("Pass --price-per-mtok with a cloud baseline price to compare dollars.")
     print("\nTarget for cost reduction is ~32% (LLMRouterBench), not 90%.")
 
+    # Where the mesh gained or lost, not merely that it did. Paths that return
+    # the local answer cannot score below `single`; the ones that overrule it
+    # can, and those are the only ones worth changing.
+    print(f"\nmesh accuracy by selection path (single = {single['accuracy']:.3f})")
+    for path, (items, accuracy) in mesh.get("by_selection", {}).items():
+        verdict = "" if path in ("consensus", "sole-responder") else \
+            ("  <- overruled local" if accuracy < single["accuracy"] else "")
+        print(f"  {path:<16} {items:>3} items  {accuracy:.3f}{verdict}")
+
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__)
@@ -184,6 +205,10 @@ def parse_args():
     p.add_argument("--single-model", default="local")
     p.add_argument("--litellm-key", default=os.environ.get("LITELLM_KEY", ""),
                    help="LiteLLM master key; defaults to $LITELLM_KEY")
+    p.add_argument("--max-tokens", type=int, default=512,
+                   help="generation cap for the single arm; must equal the "
+                        "coordinator's MESH_MAX_TOKENS or the arms are not "
+                        "comparable. 0 disables, matching MESH_MAX_TOKENS=0")
     p.add_argument("--skills", nargs="*", default=["reasoning", "logic", "general"])
     p.add_argument("--price-per-mtok", type=float, default=0.0)
     p.add_argument("--timeout", type=float, default=300.0)

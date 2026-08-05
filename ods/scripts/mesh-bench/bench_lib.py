@@ -83,7 +83,26 @@ def summarize(records: list, price_per_mtok: float = 0.0) -> dict:
         "cost_usd": tokens / 1_000_000 * price_per_mtok,
         "mean_straggler_ratio": statistics.fmean(stragglers) if stragglers else 1.0,
         "judge_invocations": sum(1 for r in records if r.get("judge_invoked")),
+        "by_selection": accuracy_by_selection(records),
     }
+
+
+def accuracy_by_selection(records: list) -> dict:
+    """{selection path: (items, accuracy)} for one arm. Pure.
+
+    An aggregate accuracy says the mesh lost but not where, and the paths fail
+    for opposite reasons: consensus and majority-with-local return the local
+    answer and cannot score below the single arm, while a majority that
+    overrules local, or a judge, can. Without this split a run says "worse" and
+    leaves the cause to guesswork -- which is how the first three fixes were
+    found by reading code rather than by measuring.
+    """
+    paths = {}
+    for record in records:
+        key = record.get("selection") or "single"
+        items, correct = paths.get(key, (0, 0))
+        paths[key] = (items + 1, correct + (1 if record["correct"] else 0))
+    return {k: (n, c / n) for k, (n, c) in sorted(paths.items())}
 
 
 def delta_pct(mesh_value: float, single_value: float) -> float:
