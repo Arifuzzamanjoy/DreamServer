@@ -322,7 +322,19 @@ async def run_judge(client: httpx.AsyncClient, question: str, candidates: list) 
             status_code=502,
             detail=f"judge model {JUDGE_MODEL} unavailable: {verdict['state']}",
         )
-    index, reason = parse_judge_verdict(verdict["answer"], len(candidates))
+    try:
+        index, reason = parse_judge_verdict(verdict["answer"], len(candidates))
+    except ValueError as exc:
+        # A small judge that ignores the output format is expected variance,
+        # not a programming error, so it must not surface as a 500 with a
+        # stack trace. No fallback to a candidate either: picking one without
+        # a verdict would be selection theatre, and the whole value of this
+        # step is that something actually chose.
+        raise HTTPException(
+            status_code=502,
+            detail=(f"judge model {JUDGE_MODEL} returned an unusable verdict: "
+                    f"{exc}; reply began {verdict['answer'][:120]!r}"),
+        ) from exc
     return index, reason, verdict.get("total_tokens", 0)
 
 

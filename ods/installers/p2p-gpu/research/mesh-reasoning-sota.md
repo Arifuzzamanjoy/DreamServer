@@ -160,6 +160,44 @@ Ordered by value per unit of work on this codebase.
    untrusted nodes. Irrelevant to a single-account testbed, and worth revisiting
    only if the volunteer-mesh premise gets picked up.
 
+## First measured run — three real nodes, August 2026
+
+30 items of `logical_deduction_three_objects`, both arms over the same items.
+Mesh: node A coordinating, Qwen3.5-9B on A and B, Llama-3.1-8B on C, over SSH
+tunnels. Single: `local` straight through LiteLLM.
+
+| metric | single | mesh | delta |
+|---|---|---|---|
+| accuracy | **1.000** | **0.800** | **−0.200** |
+| failed to answer | 0 | 1 | |
+| latency p50 | 4.98s | 3.65s | −26.8% |
+| latency p95 | 10.03s | 5.78s | −42.4% |
+| tokens/item | 353 | 670 | +90.1% |
+| straggler ratio | 1.00 | 2.20 | |
+| judge calls | 0 | 9/30 | |
+
+**Read the methodology before the numbers.** The baseline scored 100%: Qwen3.5-9B
+saturates this task, so the mesh could not win it, only lose it. The correct
+conclusion is not "the mesh does not work" — it is "this experiment could not
+have shown that it does". A task with single-node accuracy around 0.4–0.7 is
+the only kind that can answer the question in either direction.
+
+What the run does establish is that fan-out **introduced** errors on items a
+single node already got right, at +90% tokens. Nine items reached the judge and
+it chose wrong often enough to turn a perfect score into 0.800 — which is the
+Self-MoA and Ringelmann prediction showing up on real hardware rather than in a
+paper. Adding agents to a model that was already correct costs accuracy.
+
+Faster latency is not a mesh win here: peers ran shorter completions, and the
+straggler ratio of 2.20 shows fan-out still waiting 2.2x the mean peer.
+
+Two artefacts were found and removed before trusting these numbers. Failures
+were first recorded at the full timeout budget rather than their real elapsed
+time, which put a fabricated 300s into p95 — they were fast 502s. And an
+unparseable judge verdict surfaced as a 500 with a stack trace instead of a
+gateway error, aborting the whole run. Both fixed; the table above is the
+re-run.
+
 ## Recommendation
 
 Fix the deck's two factual errors (Symphony's year, and the 86% figure). Then,

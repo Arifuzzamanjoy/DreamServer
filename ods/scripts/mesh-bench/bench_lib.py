@@ -70,6 +70,10 @@ def summarize(records: list, price_per_mtok: float = 0.0) -> dict:
     stragglers = [r["straggler_ratio"] for r in records if r.get("straggler_ratio")]
     return {
         "n": len(records),
+        # Counted, not excluded. A failed item is scored wrong, so accuracy
+        # already carries the penalty; this says how much of the gap is
+        # availability rather than reasoning.
+        "failed": sum(1 for r in records if r.get("error")),
         "accuracy": correct / len(records),
         "latency_p50_s": percentile(latencies, 50),
         "latency_p95_s": percentile(latencies, 95),

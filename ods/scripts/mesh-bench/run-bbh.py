@@ -99,18 +99,35 @@ async def run_mesh(client, coordinator, question, skills, timeout):
 
 
 async def run_arm(arm, examples, args) -> list:
-    """Run one arm over every example. Failures crash -- a benchmark that
-    quietly drops hard items reports a flattering number."""
+    """Run one arm over every example.
+
+    An item the arm cannot answer is recorded as WRONG, never dropped. Dropping
+    it would report a flattering number, and crashing the run would report no
+    number at all -- but a mesh that fails to answer has, for benchmark
+    purposes, got the item wrong. The failure reason is kept on the record so
+    the rate is auditable rather than folded into the accuracy figure.
+    """
     records = []
     async with httpx.AsyncClient() as client:
         for example in examples:
             question = example["input"] + INSTRUCTION
-            if arm == "single":
-                result = await run_single(client, args.litellm, args.single_model,
-                                          question, args.timeout, args.litellm_key)
-            else:
-                result = await run_mesh(client, args.coordinator, question,
-                                        args.skills, args.timeout)
+            attempt_start = time.perf_counter()
+            try:
+                if arm == "single":
+                    result = await run_single(client, args.litellm, args.single_model,
+                                              question, args.timeout, args.litellm_key)
+                else:
+                    result = await run_mesh(client, args.coordinator, question,
+                                            args.skills, args.timeout)
+            except (httpx.HTTPStatusError, httpx.TimeoutException,
+                    httpx.ConnectError) as exc:
+                # Real elapsed time, not the timeout budget. A 502 that comes
+                # back in two seconds is a fast failure, and charging it the
+                # full timeout would put a number in p95 that nobody waited.
+                result = {"reply": "", "latency_s": time.perf_counter() - attempt_start,
+                          "total_tokens": 0, "straggler_ratio": 0.0,
+                          "judge_invoked": False, "selection": "failed",
+                          "error": type(exc).__name__ + ": " + str(exc)[:120]}
             result["correct"] = is_correct(result["reply"], example["target"])
             result["target"] = example["target"]
             records.append(result)
@@ -124,6 +141,11 @@ async def run_arm(arm, examples, args) -> list:
 def print_table(single: dict, mesh: dict, price: float):
     rows = [
         ("items", f"{single['n']}", f"{mesh['n']}", ""),
+        # Reported next to accuracy on purpose: a failed item counts as wrong,
+        # so a high failure rate makes accuracy look like a quality result when
+        # it is really an availability one.
+        ("failed to answer", f"{single.get('failed', 0)}",
+         f"{mesh.get('failed', 0)}", ""),
         ("accuracy", f"{single['accuracy']:.3f}", f"{mesh['accuracy']:.3f}",
          f"{mesh['accuracy'] - single['accuracy']:+.3f}"),
         ("latency p50 (s)", f"{single['latency_p50_s']:.2f}",
