@@ -241,7 +241,7 @@ def order_by_availability(candidates: list, idle_skills: list) -> list:
             + [s for s in candidates if s not in idle])
 
 
-def peer_models(skills: list, question: str, fanout: int,
+async def peer_models(client: httpx.AsyncClient, skills: list, question: str, fanout: int,
                 best: str = None, idle_skills: list = None,
                 ledger: dict = None) -> list:
     """LiteLLM model names to query, this node's own model first. Pure.
@@ -276,7 +276,7 @@ def peer_models(skills: list, question: str, fanout: int,
     # availability decides *which* peers make the cut and not merely their
     # order inside an already-truncated list. The budget is applied below.
     candidates = order_by_availability(
-        select_candidates(question, skills, len(skills)), idle_skills or [])
+        await resolve_candidates(client, question, skills), idle_skills or [])
 
     # Reorder on evidence. A peer measured as losing this skill drops behind
     # one nobody has tried, so declarations stop being the last word and a
@@ -294,8 +294,13 @@ def peer_models(skills: list, question: str, fanout: int,
     # want of a better idea. Off by default: breadth is still the right hedge
     # when nothing scores, and the local model is in the pool either way now.
     if ESCALATE_ONLY:
-        confident = select_candidates(question, skills, len(skills))
-        ranked = {skill for skill, _ in rank_skills(question)}
+        confident = await resolve_candidates(client, question, skills)
+        if MESH_ROUTER == "routemoa":
+            from routemoa_router import rank_skills_routemoa
+            ranked_scores = await rank_skills_routemoa(client, question, skills)
+            ranked = {skill for skill, score in ranked_scores if score > 0}
+        else:
+            ranked = {skill for skill, _ in rank_skills(question)}
         candidates = [s for s in candidates if s in ranked and s in confident]
 
     for skill in candidates:
@@ -309,16 +314,25 @@ def peer_models(skills: list, question: str, fanout: int,
 
 async def resolve_skill(client: httpx.AsyncClient, question: str,
                        skills: list) -> str:
-    """Pick a skill using whichever router is configured.
+    """Pick a skill using whichever router is configured."""
+    if MESH_ROUTER == "semantic":
+        from semantic_router import select_skill_semantic
+        return await select_skill_semantic(client, question, skills)
+    elif MESH_ROUTER == "routemoa":
+        from routemoa_router import select_skill_routemoa
+        return await select_skill_routemoa(client, question, skills)
+    return select_skill(question, skills)
 
-    The semantic path is allowed to fail loudly. Falling back to keywords on
-    error would make the two routers indistinguishable in production and would
-    quietly hide a broken TEI or an unseeded Qdrant collection.
-    """
-    if MESH_ROUTER != "semantic":
-        return select_skill(question, skills)
-    from semantic_router import select_skill_semantic
-    return await select_skill_semantic(client, question, skills)
+
+async def resolve_candidates(client: httpx.AsyncClient, question: str, skills: list) -> list:
+    """Screen candidates using whichever router is configured."""
+    if MESH_ROUTER == "semantic":
+        # Semantic doesn't have a screening implementation yet, fall back to keyword
+        return select_candidates(question, skills, len(skills))
+    elif MESH_ROUTER == "routemoa":
+        from routemoa_router import select_candidates_routemoa
+        return await select_candidates_routemoa(client, question, skills, len(skills))
+    return select_candidates(question, skills, len(skills))
 
 
 async def ask_peer(client: httpx.AsyncClient, model: str, question: str) -> dict:
@@ -436,7 +450,7 @@ async def run_mesh(request: ReasonRequest) -> ReasonResponse:
         idle_skills = await discover_idle_skills(client)
         best = await resolve_skill(client, request.question, skills)
         ledger = await asyncio.to_thread(load_ledger) if USE_LEDGER else None
-        models = peer_models(skills, request.question, fanout, best=best,
+        models = await peer_models(client, skills, request.question, fanout, best=best,
                              idle_skills=idle_skills, ledger=ledger)
         results = await asyncio.gather(
             *(ask_peer(client, model, request.question) for model in models)

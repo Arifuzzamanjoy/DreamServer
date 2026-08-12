@@ -1,0 +1,21 @@
+schema_version: ods.services.v1
+
+compatibility:
+  ods_min: "2.0.0"
+
+service:
+  id: routemoa-scorer
+  name: RouteMoA Scorer
+  aliases: []
+  container_name: routemoa-scorer
+  host_env: ROUTEMOA_HOST
+  default_host: routemoa-scorer
+  port: 8000
+  external_link: false
+  health: /health
+  ui_path: /health
+  type: docker
+  gpu_backends: [all]
+  category: core
+  depends_on: []
+  startup_check: true
